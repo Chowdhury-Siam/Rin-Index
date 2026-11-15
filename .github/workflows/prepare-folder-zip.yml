@@ -1,0 +1,46 @@
+name: Prepare folder ZIP
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder:
+        description: Paste the folder's Rin Index page URL or path
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-rin-folder-zip
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build and publish the folder ZIP
+        run: node scripts/prepare-folder-zip.mjs
+        env:
+          RIN_ARCHIVE_FOLDER: ${{ inputs.folder }}
+          R2_ARCHIVE_BUCKET: ${{ secrets.R2_ARCHIVE_BUCKET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ARCHIVE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_ARCHIVE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_ROOT_ID: ${{ secrets.DRIVE_ROOT_ID }}
+          SITE_NAME: ${{ secrets.SITE_NAME }}
