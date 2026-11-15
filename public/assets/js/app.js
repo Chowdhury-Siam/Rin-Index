@@ -1,3 +1,5 @@
+import { folderZip, safeArchiveName } from './folder-archive.mjs';
+
 const { order, name, model } = window.RIN_INDEX;
 const root = '/' + order + ':/';
 const path = location.pathname;
@@ -36,8 +38,13 @@ document.body.innerHTML = `
 			<section class="panel">
 				<div class="panel-top">
 					<h2></h2>
-					<p class="count"></p>
+					<div class="panel-tools">
+						<p class="count"></p>
+						<button class="button button-secondary cancel-archive" type="button" hidden>Cancel</button>
+						<button class="button button-primary download-folder" type="button" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download folder</button>
+					</div>
 				</div>
+				<p class="archive-status" role="status" hidden></p>
 				<div class="column-labels" aria-hidden="true">
 					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
 				</div>
@@ -234,10 +241,53 @@ const loadButton = panelActions.querySelector('button');
 const fileList = document.querySelector('.file-list');
 const count = document.querySelector('.count');
 const folderPassword = document.querySelector('.folder-password');
+const archiveButton = document.querySelector('.download-folder');
+const cancelArchive = document.querySelector('.cancel-archive');
+const archiveStatus = document.querySelector('.archive-status');
 let pageIndex = 0;
 let nextPageToken = '';
 let password = '';
 let loading = false;
+
+async function downloadFolder() {
+	const controller = new AbortController();
+	const { signal } = controller;
+	const cancel = () => controller.abort();
+	archiveStatus.hidden = false;
+	archiveStatus.textContent = 'Preparing folder download…';
+	archiveButton.disabled = true;
+	try {
+		if (typeof window.showSaveFilePicker !== 'function') {
+			if (!navigator.serviceWorker) throw new Error('Open this page in a browser that supports streaming downloads.');
+			await navigator.serviceWorker.register('/rin-folder-download.mjs', { type: 'module' });
+			await navigator.serviceWorker.ready;
+			archiveStatus.textContent = 'Download requested. Check your browser’s downloads.';
+			location.assign('/_rin-folder.zip?' + new URLSearchParams({ path }));
+			return;
+		}
+		const folderName = segments.length ? nameFromPath(segments.at(-1)) : name;
+		const handle = await window.showSaveFilePicker({
+			suggestedName: safeArchiveName(folderName) + '.zip',
+			types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
+		});
+		cancelArchive.hidden = false;
+		cancelArchive.addEventListener('click', cancel);
+		const { makeZip } = await import('../vendor/client-zip.mjs');
+		const { stream } = await folderZip(path, makeZip, {
+			signal,
+			onFile: file => { archiveStatus.textContent = 'Adding ' + file + '…'; }
+		});
+		signal.throwIfAborted();
+		await stream.pipeTo(await handle.createWritable(), { signal });
+		archiveStatus.textContent = 'Folder saved as a ZIP.';
+	} catch (error) {
+		archiveStatus.textContent = error.name === 'AbortError' ? 'Folder download canceled.' : (error.message || 'Could not download this folder.');
+	} finally {
+		archiveButton.disabled = false;
+		cancelArchive.hidden = true;
+		cancelArchive.removeEventListener('click', cancel);
+	}
+}
 
 async function loadPage() {
 	if (loading) return;
@@ -338,6 +388,10 @@ async function previewFile() {
 
 if (isSearch || isFolder) {
 	panel.querySelector('h2').textContent = isSearch ? 'Matching files' : 'Files and folders';
+	if (isFolder && !isSearch) {
+		archiveButton.hidden = false;
+		archiveButton.addEventListener('click', downloadFolder);
+	}
 	loadButton.addEventListener('click', loadPage);
 	folderPassword.addEventListener('submit', event => {
 		event.preventDefault();
