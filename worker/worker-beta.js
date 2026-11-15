@@ -53,7 +53,7 @@ const FUNCS = {
  * @type {{folder_mime_type: string, default_file_fields: string, gd_root_type: {share_drive: number, user_drive: number, sub_folder: number}}}
  */
 const CONSTS = new(class {
-	default_file_fields = 'parents,id,name,mimeType,modifiedTime,createdTime,fileExtension,size,trashed,capabilities(canDownload)';
+	default_file_fields = 'parents,id,name,mimeType,modifiedTime,createdTime,fileExtension,size';
 	gd_root_type = {
 		user_drive: 0,
 		share_drive: 1,
@@ -156,7 +156,6 @@ async function handleRequest(request) {
 	}
 
 	if (path == '/') return redirectToIndexPage();
-	if (path === '/_rin-folder.zip') return new Response('Open the folder and try Download folder again.', { status: 503 });
 	if (path.toLowerCase() == '/favicon.ico') {
 		// You can find a favicon later
 		return new Response('', {
@@ -233,11 +232,14 @@ async function handleRequest(request) {
 		return new Response('Not found', { status: 404 });
 	}
 
-	await gd.initRootType();
-	if (request.method === 'POST' && path.endsWith('/') && url.searchParams.get('archive') === '1') {
+	if (path.endsWith('/') && url.searchParams.get('download') === 'zip') {
+		if (request.method !== 'GET' && request.method !== 'HEAD') {
+			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
+		}
 		if (authConfig.enable_password_file_verify) return new Response('Folder ZIP downloads are unavailable with per-folder passwords.', { status: 403 });
 		return folderArchive(request, gd, path);
 	}
+	await gd.initRootType();
 	if (request.method === 'POST') return apiRequest(request, gd);
 	if (servesIndex) {
 		return new Response(html(gd.order, { root_type: gd.root_type }), {
@@ -392,7 +394,10 @@ class googleDrive {
 
 	async down(file, range, inline, signal) {
 		const url = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
-		const options = await this.requestOption(range ? { Range: range } : {});
+		const requestHeaders = {};
+		if (range) requestHeaders.Range = range;
+		if (signal) requestHeaders['Accept-Encoding'] = 'identity';
+		const options = await this.requestOption(requestHeaders);
 		const upstream = await fetch(url, { ...options, signal });
 		const response = new Response(upstream.body, upstream);
 		const { headers } = response;
@@ -478,7 +483,7 @@ class googleDrive {
 	}
 
 
-	async _ls(parent, page_token = null, page_index = 0) {
+	async _ls(parent, page_token = null, page_index = 0, pageSize = this.authConfig.files_list_page_size) {
 		// console.log("_ls", parent);
 
 		if (parent == undefined) {
@@ -491,8 +496,8 @@ class googleDrive {
 		};
 		params.q = `'${parent}' in parents and trashed = false AND name !='.password'`;
 		params.orderBy = 'folder,name,modifiedTime desc';
-		params.fields = "nextPageToken, files(id, name, mimeType, size , modifiedTime)";
-		params.pageSize = this.authConfig.files_list_page_size;
+		params.fields = "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
+		params.pageSize = pageSize;
 
 		if (page_token) {
 			params.pageToken = page_token;
