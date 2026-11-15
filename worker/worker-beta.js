@@ -2,6 +2,7 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readSettings, refreshGoogleToken } from './settings.mjs';
+import { folderArchive } from './folder-archive.mjs';
 
 const driveOptions = {
 	/**
@@ -52,7 +53,7 @@ const FUNCS = {
  * @type {{folder_mime_type: string, default_file_fields: string, gd_root_type: {share_drive: number, user_drive: number, sub_folder: number}}}
  */
 const CONSTS = new(class {
-	default_file_fields = 'parents,id,name,mimeType,modifiedTime,createdTime,fileExtension,size';
+	default_file_fields = 'parents,id,name,mimeType,modifiedTime,createdTime,fileExtension,size,trashed,capabilities(canDownload)';
 	gd_root_type = {
 		user_drive: 0,
 		share_drive: 1,
@@ -104,7 +105,7 @@ function html(order, model) {
 	<link rel="stylesheet" href="/assets/css/rin-index.css">
 	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
 	<script src="/assets/vendor/markdown-it.min.js" defer></script>
-	<script src="/assets/js/app.js" defer></script>
+	<script type="module" src="/assets/js/app.js"></script>
 </head>
 <body><noscript>Enable JavaScript to browse Rin Index.</noscript></body>
 </html>`;
@@ -155,6 +156,7 @@ async function handleRequest(request) {
 	}
 
 	if (path == '/') return redirectToIndexPage();
+	if (path === '/_rin-folder.zip') return new Response('Open the folder and try Download folder again.', { status: 503 });
 	if (path.toLowerCase() == '/favicon.ico') {
 		// You can find a favicon later
 		return new Response('', {
@@ -232,6 +234,10 @@ async function handleRequest(request) {
 	}
 
 	await gd.initRootType();
+	if (request.method === 'POST' && path.endsWith('/') && url.searchParams.get('archive') === '1') {
+		if (authConfig.enable_password_file_verify) return new Response('Folder ZIP downloads are unavailable with per-folder passwords.', { status: 403 });
+		return folderArchive(request, gd, path);
+	}
 	if (request.method === 'POST') return apiRequest(request, gd);
 	if (servesIndex) {
 		return new Response(html(gd.order, { root_type: gd.root_type }), {
@@ -384,10 +390,10 @@ class googleDrive {
 		});
 	}
 
-	async down(file, range, inline) {
+	async down(file, range, inline, signal) {
 		const url = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
 		const options = await this.requestOption(range ? { Range: range } : {});
-		const upstream = await fetch(url, options);
+		const upstream = await fetch(url, { ...options, signal });
 		const response = new Response(upstream.body, upstream);
 		const { headers } = response;
 		if (this.authConfig.enable_cors_file_down) headers.append('Access-Control-Allow-Origin', '*');
