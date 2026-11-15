@@ -36,7 +36,24 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your
 
 Open a folder and click **Download folder**, or click **Copy ZIP link** to share the direct URL or paste it into a download manager. A private index requires the same username and password when opening the ZIP link.
 
-The Worker streams a ZIP64 archive on demand. Use a single connection in your download manager. If the transfer is interrupted, start it again from the beginning. Large folders and folders with many files can exceed the CPU and request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+The Worker can stream a ZIP64 archive on demand over a single connection. An interrupted on-demand transfer starts again from the beginning. Large on-demand ZIPs can exceed the CPU or request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+
+### Prepare resumable ZIPs for large folders
+
+1. In Cloudflare **R2 Object Storage**, create a private bucket. Create an R2 API token with **Object Read & Write** access scoped to that bucket. Save its **Access Key ID** and **Secret Access Key**. [Cloudflare R2 setup](https://developers.cloudflare.com/r2/get-started/s3/)
+2. In GitHub, go to **Settings → Secrets and variables → Actions → Secrets**. Add these repository secrets.
+
+   | Secret | Value |
+   | --- | --- |
+   | `R2_ARCHIVE_BUCKET` | The R2 bucket name |
+   | `R2_ARCHIVE_ACCESS_KEY_ID` | The R2 access key ID |
+   | `R2_ARCHIVE_SECRET_ACCESS_KEY` | The R2 secret access key |
+
+3. Run **Actions → Deploy Rin Index** on `main` to connect the Worker to the bucket.
+4. Run **Actions → Prepare folder ZIP** on `main`. Paste the folder page URL from Rin Index into **folder**, then wait for the run to succeed.
+5. Open the folder and use **Copy ZIP link**. Start a new download after preparing the archive. Your download manager can resume that download or request multiple parts.
+
+The prepared ZIP is a snapshot. Run **Prepare folder ZIP** again to publish Drive changes. The previous ZIP remains available while its replacement uploads. R2 retains earlier ZIP versions until you delete them. To withdraw a prepared snapshot, remove its `current` object or the ZIP version it points to. Existing links follow the index's sign-in settings.
 
 The ZIP includes empty folders. Google Docs, Sheets, Slides, Drawings, and Apps Script files are exported. Google Drive shortcuts and Workspace files without a supported export are included as links. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
 
