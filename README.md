@@ -19,7 +19,7 @@ In **Workers & Pages**, make sure your account has a `workers.dev` subdomain. Co
 
 ## 3. Configure GitHub
 
-Create an empty GitHub repository. Open **Settings → Secrets and variables → Actions** and add these **repository secrets**.
+Create or open your GitHub repository. Go to **Settings → Secrets and variables → Actions → Secrets** and click **New repository secret** for each required setting.
 
 | Name | Value |
 | --- | --- |
@@ -28,14 +28,15 @@ Create an empty GitHub repository. Open **Settings → Secrets and variables →
 | `GOOGLE_CLIENT_ID` | OAuth web client ID |
 | `GOOGLE_CLIENT_SECRET` | OAuth web client secret |
 | `GOOGLE_REFRESH_TOKEN` | Refresh token from the OAuth Playground |
-| `INDEX_PASSWORD` | Optional password for browsing the index. Leave it unset for a public index. |
+| `DRIVE_ROOT_ID` | ID of the folder or Shared Drive to index |
 
-On the **Variables** tab, add `DRIVE_ROOT_ID`. For a folder or Shared Drive, use the ID after `/folders/` in its Google Drive URL. Use `root` for My Drive. A folder is a good first deployment because it limits what visitors can browse.
+For `DRIVE_ROOT_ID`, use the ID after `/folders/` in the Google Drive URL. Use `root` to index all of My Drive.
 
-These repository variables are optional.
+You can add these optional settings as repository secrets on the same tab.
 
 | Name | Default | Effect |
 | --- | --- | --- |
+| `INDEX_PASSWORD` | Unset | Require a password to browse the index |
 | `SITE_NAME` | Bhadoo Drive Index | Name shown in the browser title and drive menu |
 | `INDEX_USERNAME` | viewer | Username for the private index |
 | `INDEX_PUBLIC` | Automatic | The index is public when `INDEX_PASSWORD` is unset. Set this to `true` to make it public even with a password configured. |
@@ -57,11 +58,12 @@ git push -u origin main
 
 In GitHub, open **Actions → Deploy Drive index**. Open the run, expand **Deploy to Cloudflare**, and follow the `workers.dev` URL shown in the log. If you set an index password, sign in as `viewer` or your configured username. Check that you can open a folder and download a file.
 
-The workflow deploys on pushes to `main`. After changing a secret or variable, use **Actions → Deploy Drive index → Run workflow** and select `main`.
+The workflow deploys on pushes to `main`. After changing a secret, use **Actions → Deploy Drive index → Run workflow** and select `main`.
 
 ## Troubleshooting
 
 - **Google rejected the token refresh** means the client ID, client secret, or refresh token needs checking. Generate a new token if it expired, and rerun the workflow after updating the GitHub secret.
+- **Set DRIVE_ROOT_ID before deploying** means the workflow did not receive a value. Check for a repository secret named exactly `DRIVE_ROOT_ID` and start a fresh run.
 - **Google Drive could not open DRIVE_ROOT_ID** means the folder ID, Drive API, or Google account access needs checking. Use the account that can open the folder in Drive.
 - **Cloudflare rejected the deployment** means you should check the token permissions, the account ID, and the `workers.dev` subdomain.
 - The original index supports search for My Drive and Shared Drives. With a single subfolder selected, browse its contents through the folder list. My Drive search can show matching filenames from **Shared with me**. Use a specific folder if you need to limit the index to one folder.
