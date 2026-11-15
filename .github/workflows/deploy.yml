@@ -49,11 +49,11 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           INDEX_PASSWORD: ${{ secrets.INDEX_PASSWORD }}
-          DRIVE_ROOT_ID: ${{ vars.DRIVE_ROOT_ID }}
-          INDEX_PUBLIC: ${{ vars.INDEX_PUBLIC }}
-          INDEX_USERNAME: ${{ vars.INDEX_USERNAME }}
-          PROTECT_FILE_LINK: ${{ vars.PROTECT_FILE_LINK }}
-          SITE_NAME: ${{ vars.SITE_NAME }}
+          DRIVE_ROOT_ID: ${{ secrets.DRIVE_ROOT_ID }}
+          INDEX_PUBLIC: ${{ secrets.INDEX_PUBLIC }}
+          INDEX_USERNAME: ${{ secrets.INDEX_USERNAME }}
+          PROTECT_FILE_LINK: ${{ secrets.PROTECT_FILE_LINK }}
+          SITE_NAME: ${{ secrets.SITE_NAME }}
 
       - name: Deploy to Cloudflare
         run: |
