@@ -28,15 +28,19 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your
 | **Search** | Search by name when indexing My Drive or a Shared Drive. |
 | **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
 | **Download** | Download a file from its row or preview page. |
-| **Download folder** | Save the current folder and its subfolders as one ZIP. |
+| **Download folder** | Download the current folder and its subfolders as one ZIP, or copy its direct URL. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
 
 ### Download an entire folder
 
-Open the folder and click **Download folder** next to the item count. Keep Rin Index open while the download runs. The browser writes the ZIP as it receives the files and uses ZIP64 for large archives.
+Open a folder and click **Download folder**, or click **Copy ZIP link** to share the direct URL or paste it into a download manager. A private index requires the same username and password when opening the ZIP link.
 
-The ZIP includes empty folders. Google Docs, Sheets, Slides, Drawings, and Apps Script files are exported. Google Drive shortcuts and Workspace files without a supported export are included as links. Folder downloads follow the index’s sign-in settings and Google Drive’s [download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads).
+The Worker streams a ZIP64 archive on demand. Use a single connection in your download manager. If the transfer is interrupted, start it again from the beginning. Large folders and folders with many files can exceed the CPU and request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+
+The ZIP includes empty folders. Google Docs, Sheets, Slides, Drawings, and Apps Script files are exported. Google Drive shortcuts and Workspace files without a supported export are included as links. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
+
+When updating from the browser-based folder downloader, remove the old files `public/rin-folder-download.mjs` and `public/assets/js/folder-archive.mjs` from your repository.
 
 ## Deploy
 
