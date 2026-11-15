@@ -27,18 +27,21 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
-      - name: Check the Worker
-        run: |
-          node --check public/assets/js/app.js
-          node --test
-
       - name: Prepare browser assets and Wrangler
         run: |
-          npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP" markdown-it@15.0.3
+          npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP" markdown-it@15.0.3 client-zip@2.5.0
           mkdir -p public/assets/vendor
           tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/dist/browser/markdown-it.umd.min.js > public/assets/vendor/markdown-it.min.js
           tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/LICENSE > public/assets/vendor/markdown-it-LICENSE.txt
+          tar -xOzf "$RUNNER_TEMP/client-zip-2.5.0.tgz" package/index.js > public/assets/vendor/client-zip.mjs
+          tar -xOzf "$RUNNER_TEMP/client-zip-2.5.0.tgz" package/LICENSE.txt > public/assets/vendor/client-zip-LICENSE.txt
           npm install --global wrangler@4.162.0
+
+      - name: Check the Worker and folder downloads
+        run: |
+          node --check public/assets/js/app.js
+          node --check public/rin-folder-download.mjs
+          node --test
 
       - name: Verify Google Drive access
         run: node scripts/prepare-deploy.mjs "$RUNNER_TEMP/rin-worker-secrets.json"
