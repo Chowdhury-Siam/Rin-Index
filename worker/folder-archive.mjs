@@ -1,94 +1,129 @@
 import { folderMimeType } from './settings.mjs';
+import { zipLength, zipStream } from './zip.mjs';
 
-const idPattern = /^[A-Za-z0-9_-]+$/;
 const googleMime = 'application/vnd.google-apps.';
 const officeMime = 'application/vnd.openxmlformats-officedocument.';
-const exportsByType = {
-	document: [officeMime + 'wordprocessingml.document', '.docx'],
-	spreadsheet: [officeMime + 'spreadsheetml.sheet', '.xlsx'],
-	presentation: [officeMime + 'presentationml.presentation', '.pptx'],
-	drawing: ['application/pdf', '.pdf'],
-	script: [googleMime + 'script+json', '.json']
-};
+const encoder = new TextEncoder();
+const exportsByType = new Map([
+	['document', [officeMime + 'wordprocessingml.document', '.docx']],
+	['spreadsheet', [officeMime + 'spreadsheetml.sheet', '.xlsx']],
+	['presentation', [officeMime + 'presentationml.presentation', '.pptx']],
+	['drawing', ['application/pdf', '.pdf']],
+	['script', [googleMime + 'script+json', '.json']]
+]);
 
-export async function folderArchive(request, drive, path) {
-	let args;
-	try {
-		args = await request.json();
-	} catch {
-		return new Response('Invalid folder download request.', { status: 400 });
-	}
-	if (!args || typeof args !== 'object') return new Response('Invalid folder download request.', { status: 400 });
-
-	if (args.action === 'start') {
-		const id = await drive.findPathId(path);
-		if (!id) return new Response('Folder not found.', { status: 404 });
-		const name = path === '/' ? drive.root.name : decodeURIComponent(path.split('/').at(-2));
-		return Response.json({ id, name });
-	}
-
-	const { id, action, pageToken } = args;
-	if (typeof id !== 'string' || !idPattern.test(id) ||
-		(action !== 'list' && action !== 'file') ||
-		(pageToken != null && typeof pageToken !== 'string')) {
-		return new Response('Invalid folder download request.', { status: 400 });
-	}
-
-	const rootId = drive.root.id;
-	let file;
-	if (id === rootId || (rootId === 'root' && id === drive.authConfig.user_drive_real_root_id)) {
-		file = { id, mimeType: folderMimeType };
-	} else {
-		const chain = await drive.findParentFilesRecursion(id);
-		if (!chain?.length || chain.some(parent => parent.trashed || parent.name?.toLowerCase() === '.password')) {
-			return new Response('Item not found in this index.', { status: 404 });
-		}
-		[file] = chain;
-	}
-
-	if (action === 'list' && file.mimeType === folderMimeType) {
-		const result = await drive._ls(id, pageToken);
-		if (!Array.isArray(result?.data?.files)) return new Response('Google Drive could not list this folder.', { status: 502 });
-		return Response.json({
-			files: result.data.files.filter(entry => entry.name.toLowerCase() !== '.password'),
-			pageToken: result.nextPageToken
-		});
-	}
-	if (action === 'file' && file.mimeType !== folderMimeType) return archiveFile(request, drive, file);
-	return new Response('Item type does not match the request.', { status: 400 });
+function safeName(name) {
+	const safe = name.normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/^[ ]+|[. ]+$/g, '');
+	return /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(safe) ? '_' + safe : safe || '_';
 }
 
-async function archiveFile(request, drive, file) {
-	if (file.capabilities?.canDownload === false) return new Response('Google Drive restricts downloads for this file.', { status: 403 });
+function uniqueName(name, used) {
+	const safe = safeName(name);
+	const dot = safe.lastIndexOf('.');
+	const stem = dot > 0 ? safe.slice(0, dot) : safe;
+	const extension = dot > 0 ? safe.slice(dot) : '';
+	let candidate = safe;
+	for (let suffix = 2; used.has(candidate.toLowerCase()); suffix += 1) {
+		candidate = stem + ' (' + suffix + ')' + extension;
+	}
+	used.add(candidate.toLowerCase());
+	return candidate;
+}
+
+function fileDetails(file) {
 	const type = file.mimeType || '';
-	if (!type.startsWith(googleMime)) {
-		const response = await drive.down(file, null, false, request.signal);
-		if (response.ok) return response;
-		await response.body?.cancel();
-		return new Response('Google Drive could not download this file.', { status: 502 });
+	if (type === folderMimeType) return { directory: true, extension: '', size: 0n };
+	if (type.startsWith(googleMime)) {
+		const format = exportsByType.get(type.slice(googleMime.length));
+		if (format) return { mimeType: format[0], extension: format[1] };
+		const content = encoder.encode('[InternetShortcut]\r\nURL=https://drive.google.com/open?id='
+			+ encodeURIComponent(file.id) + '\r\n');
+		return { extension: '.url', content, size: BigInt(content.byteLength) };
 	}
+	return { extension: '', size: /^\d+$/.test(file.size ?? '') ? BigInt(file.size) : undefined };
+}
 
-	const key = type.slice(googleMime.length);
-	const format = Object.hasOwn(exportsByType, key) ? exportsByType[key] : undefined;
-	if (!format) {
-		return new Response(`[InternetShortcut]\r\nURL=https://drive.google.com/open?id=${file.id}\r\n`, {
-			headers: { 'X-Rin-Archive-Extension': '.url' }
-		});
+async function archiveEntries(drive, id, root, signal) {
+	const entries = [{ name: encoder.encode(root + '/'), directory: true, size: 0n }];
+	async function walk(folderId, prefix) {
+		const used = new Set();
+		let pageToken = null;
+		do {
+			signal.throwIfAborted();
+			const result = await drive._ls(folderId, pageToken, 0, 1000);
+			if (!Array.isArray(result?.data?.files)) throw new Error('Google Drive could not list the folder.');
+			for (const file of result.data.files) {
+				if (file.name.toLowerCase() === '.password') continue;
+				const details = fileDetails(file);
+				if (!details.directory && !details.content && file.capabilities?.canDownload === false) {
+					throw new Error('Google Drive restricts downloads for ' + file.name + '.');
+				}
+				const path = prefix + uniqueName(file.name + details.extension, used) + (details.directory ? '/' : '');
+				const name = encoder.encode(path);
+				if (name.byteLength > 0xffff) throw new Error('A file path is too long for ZIP.');
+				entries.push({ ...details, name, file, modifiedTime: file.modifiedTime });
+				if (details.directory) await walk(file.id, path);
+			}
+			pageToken = result.nextPageToken;
+		} while (pageToken);
 	}
+	await walk(id, root + '/');
+	return entries;
+}
 
-	const [mimeType, extension] = format;
-	const url = new URL(`https://www.googleapis.com/drive/v3/files/${file.id}/export`);
-	url.searchParams.set('mimeType', mimeType);
-	const options = await drive.requestOption();
-	const response = await fetch(url, { ...options, signal: request.signal });
+async function openFile(drive, entry, signal) {
+	if (entry.content) return [entry.content];
+	let response;
+	if (entry.mimeType) {
+		const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(entry.file.id)}/export`);
+		url.searchParams.set('mimeType', entry.mimeType);
+		const options = await drive.requestOption({ 'Accept-Encoding': 'identity' });
+		response = await fetch(url, { ...options, signal });
+	} else {
+		response = await drive.down(entry.file, null, false, signal);
+	}
 	if (!response.ok) {
 		await response.body?.cancel();
-		return new Response('Google Drive could not export this file.', { status: 502 });
+		throw new Error('Google Drive could not download ' + entry.file.name + '.');
 	}
-	return new Response(response.body, {
-		headers: {
-			'Content-Type': mimeType,
-			'X-Rin-Archive-Extension': extension
-		}
-	});
+	return response.body ?? [];
 }
+
+export async function folderArchive(request, drive, path) {
+	// Resolve from the configured root on each request so a shared link cannot follow a moved folder.
+	let id = drive.root.id;
+	const names = path.split('/').filter(Boolean);
+	for (const name of names) {
+		if (decodeURIComponent(name).toLowerCase() === '.password') return new Response('Folder not found.', { status: 404 });
+		id = await drive._findDirId(id, name);
+		if (!id) return new Response('Folder not found.', { status: 404 });
+	}
+	const root = safeName(names.length ? decodeURIComponent(names.at(-1)) : drive.root.name);
+	let entries;
+	try {
+		entries = await archiveEntries(drive, id, root, request.signal);
+	} catch (error) {
+		return new Response(error.message || 'Could not prepare the folder ZIP.', { status: 502 });
+	}
+
+	const encoded = encodeURIComponent(root + '.zip').replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16));
+	const asciiName = root.replace(/[^\x20-\x7e]/g, '_') + '.zip';
+	const headers = new Headers({
+		'Content-Type': 'application/zip',
+		'Content-Disposition': 'attachment; filename="' + asciiName + "\"; filename*=UTF-8''" + encoded,
+		'Accept-Ranges': 'none'
+	});
+	const length = zipLength(entries);
+	if (length !== undefined) headers.set('Content-Length', length.toString());
+	if (request.method === 'HEAD') return new Response(null, { headers });
+
+	let body = zipStream(entries, (entry, signal) => openFile(drive, entry, signal), request.signal);
+	if (typeof FixedLengthStream === 'function' && length !== undefined && length <= BigInt(Number.MAX_SAFE_INTEGER)) {
+		const fixed = new FixedLengthStream(length);
+		// The response stream propagates any write or length error to the downloader.
+		body.pipeTo(fixed.writable).catch(() => {});
+		body = fixed.readable;
+	}
+	return new Response(body, { headers, encodeBody: 'manual' });
+}
+
