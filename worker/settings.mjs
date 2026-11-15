@@ -11,7 +11,7 @@ export function readSettings(env) {
 	if (!/^[A-Za-z0-9_-]+$/.test(settings.DRIVE_ROOT_ID)) {
 		throw new Error('DRIVE_ROOT_ID must be a folder ID, Shared Drive ID, or root.');
 	}
-	settings.SITE_NAME = env.SITE_NAME?.trim() || 'Bhadoo Drive Index';
+	settings.SITE_NAME = env.SITE_NAME?.trim() || 'Rin Index';
 	const hasPassword = Boolean(env.INDEX_PASSWORD?.trim());
 	settings.INDEX_PUBLIC = env.INDEX_PUBLIC?.trim().toLowerCase() || (hasPassword ? 'false' : 'true');
 	if (!['true', 'false'].includes(settings.INDEX_PUBLIC)) {
