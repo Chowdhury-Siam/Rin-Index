@@ -1,74 +1,119 @@
-# Bhadoo Drive Index
+<div align="center">
 
-Browse and download files from a Google Drive folder, a Shared Drive, or My Drive. GitHub Actions checks your Google connection, packages the browser assets, and deploys the site to Cloudflare Workers.
+<img src="docs/images/rin-index-banner.png" alt="Rin Index — a self-hosted Google Drive index" width="960">
 
-## 1. Get a Google Drive refresh token
+**Browse, preview, and download files from your Google Drive.**
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable the **Google Drive API**.
-2. In **Google Auth Platform**, configure Branding and Audience. If the app is **External** and in **Testing**, add the Google account that can open the folder as a test user.
-3. Under **Clients**, create an OAuth client of type **Web application**. Add `https://developers.google.com/oauthplayground` under **Authorized redirect URIs**. Save the client ID and client secret.
-4. Open [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground). In the gear menu, select **Use your own OAuth credentials** and enter the client ID and secret.
-5. In Step 1, enter `https://www.googleapis.com/auth/drive.readonly` as the scope and click **Authorize APIs**. Sign in with the account that can open the folder.
-6. In Step 2, click **Exchange authorization code for tokens**. Save the **Refresh token** with the client ID and secret.
+<p>
+  <a href="https://github.com/Chowdhury-Siam/Google-Index/actions"><img alt="GitHub Actions" src="https://img.shields.io/badge/Deploy-GitHub_Actions-9DE9B1?style=for-the-badge&logo=githubactions&logoColor=183323"></a>
+  <a href="https://developers.cloudflare.com/workers/"><img alt="Cloudflare Workers" src="https://img.shields.io/badge/Hosting-Cloudflare_Workers-F6B887?style=for-the-badge&logo=cloudflare&logoColor=4b2e15"></a>
+  <a href="https://developers.google.com/workspace/drive/api/guides/api-specific-auth"><img alt="Read-only Google Drive access" src="https://img.shields.io/badge/Google_Drive-Read_only-BADBC4?style=for-the-badge&logo=googledrive&logoColor=1a3d27"></a>
+</p>
 
-For an External app in Testing, Google expires the refresh token after seven days. To keep the index running long term, configure your Google app for your intended audience and generate a new refresh token after changing its publishing status. See [Google’s OAuth setup](https://developers.google.com/explorer-help/code-samples) and [refresh token rules](https://developers.google.com/identity/protocols/oauth2#expiration).
+[**Deploy**](#deploy) · [**Features**](#features) · [**Repository secrets**](#repository-secrets) · [**Troubleshooting**](#troubleshooting)
 
-## 2. Prepare Cloudflare
+</div>
 
-In **Workers & Pages**, make sure your account has a `workers.dev` subdomain. Copy the **Account ID**, then create an API token with the **Edit Cloudflare Workers** template, scoped to that account. If you already use the Worker name `bhadoo-drive-index`, change `name` in `wrangler.toml` to your intended Worker name before deploying. See [Cloudflare’s GitHub Actions setup](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/) and [workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/).
+---
 
-## 3. Configure GitHub
+## Meet Rin Index
 
-Create or open your GitHub repository. Go to **Settings → Secrets and variables → Actions → Secrets** and click **New repository secret** for each required setting.
+Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your own Cloudflare Worker. Google Drive remains the file source. The Worker reads the selected files using Google’s read-only Drive permission.
 
-| Name | Value |
+## Features
+
+| Feature | What you can do |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
-| `GOOGLE_CLIENT_ID` | OAuth web client ID |
-| `GOOGLE_CLIENT_SECRET` | OAuth web client secret |
-| `GOOGLE_REFRESH_TOKEN` | Refresh token from the OAuth Playground |
-| `DRIVE_ROOT_ID` | ID of the folder or Shared Drive to index |
+| **Browse** | Follow folder breadcrumbs and see each item’s type, date, and size on desktop or mobile. |
+| **Search** | Search by name when indexing My Drive or a Shared Drive. |
+| **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
+| **Download** | Download a file from its row or preview page. |
+| **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
+| **Access** | Add an optional browser password and choose whether direct downloads also require it. |
 
-For `DRIVE_ROOT_ID`, use the ID after `/folders/` in the Google Drive URL. Use `root` to index all of My Drive.
+## Deploy
 
-You can add these optional settings as repository secrets on the same tab.
+### 1. Connect Google Drive
 
-| Name | Default | Effect |
+1. In [Google Cloud Console](https://console.cloud.google.com/), select a project and enable the **Google Drive API**.
+2. In **Google Auth Platform**, configure **Branding** and **Audience**. If your app is **External** and in **Testing**, add the Google account that can access your folder under **Audience → Test users**.
+3. Go to **Clients → Create client**. Choose **Web application**, name it **Rin Index**, and leave **Authorized JavaScript origins** blank. Add this exact value under **Authorized redirect URIs**.
+
+   ```text
+   https://developers.google.com/oauthplayground
+   ```
+
+4. Click **Create** and save the client ID and client secret. Open [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/), click the gear icon, and select **Use your own OAuth credentials**. Enter both values. Keep the flow **Server-side** and the access type **Offline**.
+5. In **Step 1**, paste `https://www.googleapis.com/auth/drive.readonly` into **Input your own scopes**. Click **Authorize APIs**, sign in with the account that can open the folder, and grant access.
+6. In **Step 2**, click **Exchange authorization code for tokens**. Copy the full **Refresh token** field. Store it with the matching client ID and client secret. See [Google’s OAuth Playground guide](https://developers.google.com/explorer-help/code-samples).
+
+> [!NOTE]
+> Google expires Drive refresh tokens after seven days while an **External** OAuth app is in **Testing**. If you later change the app’s publishing status, generate a fresh token and update the GitHub secret. [Google’s refresh token rules](https://developers.google.com/identity/protocols/oauth2#expiration)
+
+### 2. Prepare Cloudflare
+
+1. In **Workers & Pages**, set up your `workers.dev` subdomain and copy the **Account ID**.
+2. Create a Cloudflare API token using **Edit Cloudflare Workers** and scope it to your Cloudflare account. [Cloudflare’s GitHub Actions setup](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)
+3. To upgrade the existing deployment at `bhadoo-drive-index.<subdomain>.workers.dev`, keep the `name` in `wrangler.toml`. For a new URL, set it to an available name such as `rin-index` before deploying. [Cloudflare’s workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
+
+### 3. Add your repository secrets
+
+Create or open the GitHub repository, then go to **Settings → Secrets and variables → Actions → Secrets**. Use **New repository secret** for each required entry below. [GitHub’s repository secret setup](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
+
+<a id="repository-secrets"></a>
+
+| Required secret | Value |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
+| `CLOUDFLARE_API_TOKEN` | The API token from Cloudflare |
+| `GOOGLE_CLIENT_ID` | Your Web application’s OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | The matching OAuth client secret |
+| `GOOGLE_REFRESH_TOKEN` | The **Refresh token** from Step 2 in the OAuth Playground |
+| `DRIVE_ROOT_ID` | The folder or Shared Drive ID. Use `root` to index all of My Drive. |
+
+For `DRIVE_ROOT_ID`, copy the part of the Drive URL after `/folders/` and before the `?`. For example, `/folders/1AbC_dEf-123?usp=sharing` gives `1AbC_dEf-123`.
+
+| Optional secret | Default | Effect |
 | --- | --- | --- |
-| `INDEX_PASSWORD` | Unset | Require a password to browse the index |
-| `SITE_NAME` | Bhadoo Drive Index | Name shown in the browser title and drive menu |
-| `INDEX_USERNAME` | viewer | Username for the private index |
-| `INDEX_PUBLIC` | Automatic | The index is public when `INDEX_PASSWORD` is unset. Set this to `true` to make it public even with a password configured. |
-| `PROTECT_FILE_LINK` | false | Set to `true` and configure `INDEX_PASSWORD` to also require sign-in for direct downloads. |
+| `SITE_NAME` | Rin Index | Labels the collection and the browser tab. |
+| `INDEX_PASSWORD` | Unset | Require a password to browse the index. |
+| `INDEX_USERNAME` | `viewer` | Set the username for password-protected browsing. |
+| `INDEX_PUBLIC` | Automatic | The index is public with no password. Set this to `true` to allow public browsing with a password configured. |
+| `PROTECT_FILE_LINK` | `false` | Set to `true` with an index password to require sign-in for direct downloads. |
 
-Anyone with a direct download URL can use it by default, even if browsing the index requires a password. The workflow installs the credentials as encrypted Worker bindings during deployment. Enter real credentials in GitHub’s Secrets tab and keep them out of commits. See [GitHub’s instructions for repository secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
+> [!TIP]
+> Direct download URLs work without a password by default. Turn on `PROTECT_FILE_LINK` if you want the index password to cover downloads as well.
 
-## 4. Deploy
+### 4. Run GitHub Actions
 
-Open PowerShell in the extracted project folder containing `wrangler.toml` and run these commands. Substitute your new GitHub repository URL in the fourth command.
+For a **new repository**, open PowerShell in the extracted folder that contains `wrangler.toml` and run the commands below. Replace the example remote URL with your repository URL.
 
 ```powershell
 git init -b main
 git add --all
-git commit -m "Set up Bhadoo Drive Index"
+git commit -m "Set up Rin Index"
 git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPO.git
 git push -u origin main
 ```
 
-In GitHub, open **Actions → Deploy Drive index**. Open the run, expand **Deploy to Cloudflare**, and follow the `workers.dev` URL shown in the log. If you set an index password, sign in as `viewer` or your configured username. Check that you can open a folder and download a file.
+To **upgrade an existing repository**, copy the project contents into its working folder, including `.github/workflows/deploy.yml`. Remove the old Bootstrap and MDUI assets under `public/assets`, the old `public/assets/favicon.ico`, and the two old screenshots in `images`. Commit the update and push to `main`.
 
-The workflow deploys on pushes to `main`. After changing a secret, use **Actions → Deploy Drive index → Run workflow** and select `main`.
+Open **Actions → Deploy Rin Index**. The workflow runs the tests, prepares the browser assets, checks Google Drive access, and sends the code and Worker secrets to Cloudflare. Expand **Deploy to Cloudflare** to find your `workers.dev` URL. Open it and try browsing a folder and downloading a file.
+
+After editing a repository secret, start a fresh run with **Actions → Deploy Rin Index → Run workflow → main**.
 
 ## Troubleshooting
 
-- **Google rejected the token refresh** means the client ID, client secret, or refresh token needs checking. Generate a new token if it expired, and rerun the workflow after updating the GitHub secret.
-- **Set DRIVE_ROOT_ID before deploying** means the workflow did not receive a value. Check for a repository secret named exactly `DRIVE_ROOT_ID` and start a fresh run.
-- **Google Drive could not open DRIVE_ROOT_ID** means the folder ID, Drive API, or Google account access needs checking. Use the account that can open the folder in Drive.
-- **Cloudflare rejected the deployment** means you should check the token permissions, the account ID, and the `workers.dev` subdomain.
-- The original index supports search for My Drive and Shared Drives. With a single subfolder selected, browse its contents through the folder list. My Drive search can show matching filenames from **Shared with me**. Use a specific folder if you need to limit the index to one folder.
+| What you see | What to check |
+| --- | --- |
+| **Set DRIVE_ROOT_ID before deploying** | Add the repository secret `DRIVE_ROOT_ID` and start a fresh workflow run. |
+| **DRIVE_ROOT_ID must be a folder ID, Shared Drive ID, or root** | Paste the ID from the folder URL, or enter `root` for My Drive. |
+| **Google rejected the token refresh** | Check that the client ID, client secret, and refresh token belong to the same OAuth client. Generate a new token if it expired. |
+| **Google Drive could not open DRIVE_ROOT_ID** | Check the folder ID, the Google account’s access to that folder, and whether the Drive API is enabled. |
+| **Cloudflare rejects the deployment** | Check the account ID, token permissions, and `workers.dev` subdomain setup. |
+| **Search is missing** | Search is available for My Drive and Shared Drive roots. Use breadcrumbs to browse a selected subfolder. |
 
 ## Credits
 
-Bhadoo Drive Index was redesigned by Parveen Bhadoo and TheFirstSpeedster. It builds on [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex), with Bootstrap and MDUI for the interface.
+Rin Index’s interface and documentation take their visual cues from [Yutaka](https://github.com/Chowdhury-Siam/Yutaka). The Drive Worker builds on [Bhadoo Drive Index](https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index) by Parveen Bhadoo and TheFirstSpeedster, with earlier work from [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex).
 
