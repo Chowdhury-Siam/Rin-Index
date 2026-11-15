@@ -30,21 +30,6 @@ const driveOptions = {
 
 
 /**
- * web ui config
- */
-const uiConfig = {
-	"theme": "bhadoo_bootstrap", // Change doesn't works
-	"dark_mode": true, // switch between light or dark themes
-	"logo_image": false, // true if you're using image link in next option.
-	"logo_link_name": "Bhadoo Drive Index", // if logo is true then link otherwise just text for name
-	"contact_link": "https://t.telegram.ind.in/BhadooCloud", // Link to Contact Button on Menu
-	"copyright_year": "2050", // year of copyright, can be anything like 2015 - 2020 or just 2020
-	"company_name": "Bhadoo Cloud", // Name next to copyright
-	"company_link": "https://t.telegram.ind.in/BhadooCloud", // link of copyright name
-	"credit": true, // Set this to true to give us credit
-};
-
-/**
  * global functions
  */
 const FUNCS = {
@@ -85,7 +70,6 @@ function configure(env) {
 	authConfig = {
 		...driveOptions,
 		settings,
-		siteName: settings.SITE_NAME,
 		roots: [{
 			id: settings.DRIVE_ROOT_ID,
 			name: settings.SITE_NAME,
@@ -105,32 +89,26 @@ function driveQueryValue(value) {
 	return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
 
-function html(current_drive_order = 0, model = {}) {
+function html(order, model) {
+	const name = authConfig.roots[order].name;
+	const title = name === 'Rin Index' ? name : name + ' · Rin Index';
 	return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0,maximum-scale=1.0, user-scalable=no"/>
-  <title>${authConfig.siteName.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
-  <meta name="robots" content="noindex" />
-  <link rel="icon" href="/assets/favicon.ico">
-  <script>
-    window.drive_names = ${scriptJson(authConfig.roots.map(root => root.name))};
-    window.MODEL = ${scriptJson(model)};
-    window.current_drive_order = ${current_drive_order};
-    window.UI = ${scriptJson(uiConfig)};
-  </script>
-  <link rel="stylesheet" href="/assets/css/mdui-style.css">
-  <link rel="stylesheet" href="/assets/css/bootstrap/${uiConfig.dark_mode ? 'dark' : 'light'}.min.css">
-  <script src="/assets/vendor/jquery.min.js" defer></script>
-  <script src="/assets/js/bootstrap.min.js" defer></script>
-  <script src="/assets/js/mdui.min.js" defer></script>
-  <script src="/assets/vendor/markdown-it.min.js" defer></script>
-  <script src="/assets/js/app.js" defer></script>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#0b120f">
+	<meta name="robots" content="noindex">
+	<title>${title.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
+	<link rel="icon" href="/assets/rin-mark.png" type="image/png">
+	<link rel="stylesheet" href="/assets/css/rin-index.css">
+	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
+	<script src="/assets/vendor/markdown-it.min.js" defer></script>
+	<script src="/assets/js/app.js" defer></script>
 </head>
-<body></body>
+<body><noscript>Enable JavaScript to browse Rin Index.</noscript></body>
 </html>`;
-};
+}
 
 export default {
 	async fetch(request, env) {
@@ -298,7 +276,7 @@ async function apiRequest(request, gd) {
 		return new Response(JSON.stringify(list_result), option);
 	} else {
 		let file = await gd.file(path);
-		let range = request.headers.get('Range');
+		if (!file) return new Response('Not found', { status: 404 });
 		return new Response(JSON.stringify(file));
 	}
 }
