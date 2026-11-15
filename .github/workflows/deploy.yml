@@ -1,4 +1,4 @@
-name: Deploy Drive index
+name: Deploy Rin Index
 
 on:
   push:
@@ -34,16 +34,14 @@ jobs:
 
       - name: Prepare browser assets and Wrangler
         run: |
-          npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP" jquery@3.7.1 markdown-it@15.0.3
+          npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP" markdown-it@15.0.3
           mkdir -p public/assets/vendor
-          tar -xOzf "$RUNNER_TEMP/jquery-3.7.1.tgz" package/dist/jquery.min.js > public/assets/vendor/jquery.min.js
-          tar -xOzf "$RUNNER_TEMP/jquery-3.7.1.tgz" package/LICENSE.txt > public/assets/vendor/jquery-LICENSE.txt
           tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/dist/browser/markdown-it.umd.min.js > public/assets/vendor/markdown-it.min.js
           tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/LICENSE > public/assets/vendor/markdown-it-LICENSE.txt
           npm install --global wrangler@4.162.0
 
       - name: Verify Google Drive access
-        run: node scripts/prepare-deploy.mjs "$RUNNER_TEMP/bhadoo-worker-secrets.json"
+        run: node scripts/prepare-deploy.mjs "$RUNNER_TEMP/rin-worker-secrets.json"
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -59,11 +57,11 @@ jobs:
         run: |
           : "${CLOUDFLARE_API_TOKEN:?Set the CLOUDFLARE_API_TOKEN repository secret}"
           : "${CLOUDFLARE_ACCOUNT_ID:?Set the CLOUDFLARE_ACCOUNT_ID repository secret}"
-          wrangler deploy --secrets-file "$RUNNER_TEMP/bhadoo-worker-secrets.json"
+          wrangler deploy --secrets-file "$RUNNER_TEMP/rin-worker-secrets.json"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Remove temporary secrets file
         if: always()
-        run: rm -f "$RUNNER_TEMP/bhadoo-worker-secrets.json"
+        run: rm -f "$RUNNER_TEMP/rin-worker-secrets.json"
