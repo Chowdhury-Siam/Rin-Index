@@ -38,7 +38,7 @@ jobs:
           mkdir -p public/assets/vendor
           tar -xOzf "$RUNNER_TEMP/jquery-3.7.1.tgz" package/dist/jquery.min.js > public/assets/vendor/jquery.min.js
           tar -xOzf "$RUNNER_TEMP/jquery-3.7.1.tgz" package/LICENSE.txt > public/assets/vendor/jquery-LICENSE.txt
-          tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/dist/markdown-it.min.js > public/assets/vendor/markdown-it.min.js
+          tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/dist/browser/markdown-it.umd.min.js > public/assets/vendor/markdown-it.min.js
           tar -xOzf "$RUNNER_TEMP/markdown-it-15.0.3.tgz" package/LICENSE > public/assets/vendor/markdown-it-LICENSE.txt
           npm install --global wrangler@4.162.0
 
