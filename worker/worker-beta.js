@@ -2,7 +2,7 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readSettings, refreshGoogleToken } from './settings.mjs';
-import { folderArchive } from './folder-archive.mjs';
+import { folderArchive, prepareArchive } from './folder-archive.mjs';
 
 const driveOptions = {
 	/**
@@ -86,6 +86,12 @@ function scriptJson(value) {
 	return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
+export async function prepareFolderZip(env, path, signal) {
+	configure(env);
+	if (authConfig.enable_password_file_verify) throw new Error('Folder ZIP downloads are unavailable with per-folder passwords.');
+	return prepareArchive(new Request('https://rin-index.invalid/', { signal }), gds[0], path);
+}
+
 function driveQueryValue(value) {
 	return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
@@ -120,7 +126,7 @@ export default {
 			return new Response('Drive index configuration is incomplete.', { status: 503 });
 		}
 		try {
-			const response = await handleRequest(request);
+			const response = await handleRequest(request, env.RIN_ARCHIVES);
 			response.headers.set('Cache-Control', 'private, no-store');
 			response.headers.set('X-Content-Type-Options', 'nosniff');
 			return response;
@@ -135,7 +141,7 @@ export default {
  * Fetch and log a request
  * @param {Request} request
  */
-async function handleRequest(request) {
+async function handleRequest(request, archiveBucket) {
 	// From path extract from drive order
 	// 并根据 drive order 获取对应的 gd instance
 	let gd;
@@ -237,7 +243,7 @@ async function handleRequest(request) {
 			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
 		}
 		if (authConfig.enable_password_file_verify) return new Response('Folder ZIP downloads are unavailable with per-folder passwords.', { status: 403 });
-		return folderArchive(request, gd, path);
+		return folderArchive(request, gd, path, archiveBucket);
 	}
 	await gd.initRootType();
 	if (request.method === 'POST') return apiRequest(request, gd);
