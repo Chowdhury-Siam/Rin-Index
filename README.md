@@ -28,8 +28,15 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your
 | **Search** | Search by name when indexing My Drive or a Shared Drive. |
 | **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
 | **Download** | Download a file from its row or preview page. |
+| **Download folder** | Save the current folder and its subfolders as one ZIP. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
+
+### Download an entire folder
+
+Open the folder and click **Download folder** next to the item count. Keep Rin Index open while the download runs. The browser writes the ZIP as it receives the files and uses ZIP64 for large archives.
+
+The ZIP includes empty folders. Google Docs, Sheets, Slides, Drawings, and Apps Script files are exported. Google Drive shortcuts and Workspace files without a supported export are included as links. Folder downloads follow the index’s sign-in settings and Google Drive’s [download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads).
 
 ## Deploy
 
