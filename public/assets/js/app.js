@@ -1,5 +1,3 @@
-import { folderZip, safeArchiveName } from './folder-archive.mjs';
-
 const { order, name, model } = window.RIN_INDEX;
 const root = '/' + order + ':/';
 const path = location.pathname;
@@ -40,11 +38,14 @@ document.body.innerHTML = `
 					<h2></h2>
 					<div class="panel-tools">
 						<p class="count"></p>
-						<button class="button button-secondary cancel-archive" type="button" hidden>Cancel</button>
-						<button class="button button-primary download-folder" type="button" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download folder</button>
+						<button class="button button-secondary copy-archive-link" type="button" hidden>Copy ZIP link</button>
+						<a class="button button-primary download-folder" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download folder</a>
 					</div>
 				</div>
-				<p class="archive-status" role="status" hidden></p>
+				<div class="archive-feedback" hidden>
+					<p class="archive-status" role="status"></p>
+					<input class="archive-link-input" type="url" aria-label="Folder ZIP link" readonly hidden>
+				</div>
 				<div class="column-labels" aria-hidden="true">
 					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
 				</div>
@@ -242,50 +243,27 @@ const fileList = document.querySelector('.file-list');
 const count = document.querySelector('.count');
 const folderPassword = document.querySelector('.folder-password');
 const archiveButton = document.querySelector('.download-folder');
-const cancelArchive = document.querySelector('.cancel-archive');
+const copyArchive = document.querySelector('.copy-archive-link');
+const archiveFeedback = document.querySelector('.archive-feedback');
+const archiveLink = document.querySelector('.archive-link-input');
 const archiveStatus = document.querySelector('.archive-status');
 let pageIndex = 0;
 let nextPageToken = '';
 let password = '';
 let loading = false;
 
-async function downloadFolder() {
-	const controller = new AbortController();
-	const { signal } = controller;
-	const cancel = () => controller.abort();
-	archiveStatus.hidden = false;
-	archiveStatus.textContent = 'Preparing folder download…';
-	archiveButton.disabled = true;
+async function copyFolderLink() {
+	archiveFeedback.hidden = false;
+	archiveLink.hidden = true;
 	try {
-		if (typeof window.showSaveFilePicker !== 'function') {
-			if (!navigator.serviceWorker) throw new Error('Open this page in a browser that supports streaming downloads.');
-			await navigator.serviceWorker.register('/rin-folder-download.mjs', { type: 'module' });
-			await navigator.serviceWorker.ready;
-			archiveStatus.textContent = 'Download requested. Check your browser’s downloads.';
-			location.assign('/_rin-folder.zip?' + new URLSearchParams({ path }));
-			return;
-		}
-		const folderName = segments.length ? nameFromPath(segments.at(-1)) : name;
-		const handle = await window.showSaveFilePicker({
-			suggestedName: safeArchiveName(folderName) + '.zip',
-			types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
-		});
-		cancelArchive.hidden = false;
-		cancelArchive.addEventListener('click', cancel);
-		const { makeZip } = await import('../vendor/client-zip.mjs');
-		const { stream } = await folderZip(path, makeZip, {
-			signal,
-			onFile: file => { archiveStatus.textContent = 'Adding ' + file + '…'; }
-		});
-		signal.throwIfAborted();
-		await stream.pipeTo(await handle.createWritable(), { signal });
-		archiveStatus.textContent = 'Folder saved as a ZIP.';
-	} catch (error) {
-		archiveStatus.textContent = error.name === 'AbortError' ? 'Folder download canceled.' : (error.message || 'Could not download this folder.');
-	} finally {
-		archiveButton.disabled = false;
-		cancelArchive.hidden = true;
-		cancelArchive.removeEventListener('click', cancel);
+		await navigator.clipboard.writeText(archiveButton.href);
+		archiveStatus.textContent = 'Folder ZIP link copied.';
+	} catch {
+		archiveStatus.textContent = 'Select and copy the folder ZIP link below.';
+		archiveLink.value = archiveButton.href;
+		archiveLink.hidden = false;
+		archiveLink.focus();
+		archiveLink.select();
 	}
 }
 
@@ -389,8 +367,12 @@ async function previewFile() {
 if (isSearch || isFolder) {
 	panel.querySelector('h2').textContent = isSearch ? 'Matching files' : 'Files and folders';
 	if (isFolder && !isSearch) {
+		const url = new URL(path, location.origin);
+		url.searchParams.set('download', 'zip');
+		archiveButton.href = url.href;
 		archiveButton.hidden = false;
-		archiveButton.addEventListener('click', downloadFolder);
+		copyArchive.hidden = false;
+		copyArchive.addEventListener('click', copyFolderLink);
 	}
 	loadButton.addEventListener('click', loadPage);
 	folderPassword.addEventListener('submit', event => {
