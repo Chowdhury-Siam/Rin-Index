@@ -14,6 +14,7 @@ const auth = 'Basic ' + Buffer.from('viewer:test:password').toString('base64');
 test('configuration requires a root and makes password protection optional', () => {
 	assert.throws(() => readSettings({ ...env, DRIVE_ROOT_ID: '' }), /DRIVE_ROOT_ID/);
 	assert.equal(readSettings(env).INDEX_USERNAME, 'viewer');
+	assert.equal(readSettings(env).SITE_NAME, 'Rin Index');
 	assert.equal(readSettings(env).PROTECT_FILE_LINK, 'false');
 	assert.equal(readSettings({ ...env, INDEX_PASSWORD: '' }).INDEX_PUBLIC, 'true');
 	assert.throws(() => readSettings({
@@ -59,7 +60,10 @@ test('opt-in download protection requires the index password', async t => {
 
 	const page = await request('/0:/', { headers: { Authorization: auth } });
 	assert.equal(page.status, 200);
-	assert.match(await page.text(), /src="\/assets\/js\/app\.js"/);
+	const html = await page.text();
+	assert.match(html, /<title>Rin Index<\/title>/);
+	assert.match(html, /href="\/assets\/css\/rin-index\.css"/);
+	assert.match(html, /src="\/assets\/js\/app\.js"/);
 	const listing = await request('/0:/', {
 		method: 'POST',
 		headers: { Authorization: auth },
