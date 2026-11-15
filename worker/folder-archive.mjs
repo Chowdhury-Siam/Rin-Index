@@ -1,5 +1,6 @@
 import { folderMimeType } from './settings.mjs';
 import { zipLength, zipStream } from './zip.mjs';
+import { archiveKey, storedArchive } from './stored-archive.mjs';
 
 const googleMime = 'application/vnd.google-apps.';
 const officeMime = 'application/vnd.openxmlformats-officedocument.';
@@ -89,30 +90,31 @@ async function openFile(drive, entry, signal) {
 	return response.body ?? [];
 }
 
-export async function folderArchive(request, drive, path) {
+async function findFolder(drive, path) {
 	// Resolve from the configured root on each request so a shared link cannot follow a moved folder.
 	let id = drive.root.id;
 	const names = path.split('/').filter(Boolean);
 	for (const name of names) {
-		if (decodeURIComponent(name).toLowerCase() === '.password') return new Response('Folder not found.', { status: 404 });
+		if (decodeURIComponent(name).toLowerCase() === '.password') return null;
 		id = await drive._findDirId(id, name);
-		if (!id) return new Response('Folder not found.', { status: 404 });
+		if (!id) return null;
 	}
 	const root = safeName(names.length ? decodeURIComponent(names.at(-1)) : drive.root.name);
-	let entries;
-	try {
-		entries = await archiveEntries(drive, id, root, request.signal);
-	} catch (error) {
-		return new Response(error.message || 'Could not prepare the folder ZIP.', { status: 502 });
-	}
+	return { id, root };
+}
 
+function archiveHeaders(root) {
 	const encoded = encodeURIComponent(root + '.zip').replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16));
 	const asciiName = root.replace(/[^\x20-\x7e]/g, '_') + '.zip';
-	const headers = new Headers({
+	return new Headers({
 		'Content-Type': 'application/zip',
 		'Content-Disposition': 'attachment; filename="' + asciiName + "\"; filename*=UTF-8''" + encoded,
 		'Accept-Ranges': 'none'
 	});
+}
+
+async function liveArchive(request, drive, { id, root }, headers) {
+	const entries = await archiveEntries(drive, id, root, request.signal);
 	const length = zipLength(entries);
 	if (length !== undefined) headers.set('Content-Length', length.toString());
 	if (request.method === 'HEAD') return new Response(null, { headers });
@@ -125,5 +127,29 @@ export async function folderArchive(request, drive, path) {
 		body = fixed.readable;
 	}
 	return new Response(body, { headers, encodeBody: 'manual' });
+}
+
+export async function folderArchive(request, drive, path, bucket) {
+	const folder = await findFolder(drive, path);
+	if (!folder) return new Response('Folder not found.', { status: 404 });
+	const headers = archiveHeaders(folder.root);
+	if (bucket) {
+		const key = await archiveKey(drive.authConfig.settings, folder.id);
+		const stored = await storedArchive(request, bucket, key, headers);
+		if (stored) return stored;
+	}
+	try {
+		return await liveArchive(request, drive, folder, headers);
+	} catch (error) {
+		return new Response(error.message || 'Could not prepare the folder ZIP.', { status: 502 });
+	}
+}
+
+export async function prepareArchive(request, drive, path) {
+	const folder = await findFolder(drive, path);
+	if (!folder) throw new Error('Folder not found in this Drive index.');
+	const key = await archiveKey(drive.authConfig.settings, folder.id);
+	const response = await liveArchive(request, drive, folder, archiveHeaders(folder.root));
+	return { key, response };
 }
 
