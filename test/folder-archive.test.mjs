@@ -13,8 +13,8 @@ const env = {
 };
 const authorization = 'Basic ' + btoa('viewer:password');
 
-test('a shared folder ZIP URL supports HEAD and GET with the index login', async t => {
-	const { default: worker } = await import('../worker/worker-beta.js?archive-url');
+test('a live folder ZIP streams without a declared length and still supports preparation', async t => {
+	const { default: worker, prepareFolderZip } = await import('../worker/worker-beta.js?archive-url');
 	const album = { id: 'album', name: 'Archive folder', mimeType: folderMimeType };
 	const body = { video: 'sample video stream', copy: 'distinct file' };
 	const calls = [];
@@ -57,16 +57,18 @@ test('a shared folder ZIP URL supports HEAD and GET with the index login', async
 	assert.equal(head.status, 200);
 	assert.equal(head.body, null);
 	assert.equal(head.headers.get('Content-Type'), 'application/zip');
+	assert.equal(head.headers.get('Accept-Ranges'), 'none');
+	assert.equal(head.headers.get('Content-Length'), null);
 	assert.match(head.headers.get('Content-Disposition'), /filename="Archive folder.zip"/);
 	assert.equal(calls.filter(url => url.searchParams.get('alt') === 'media').length, 0);
 
 	const download = await request('GET', { authorization, Range: 'bytes=0-' });
 	assert.equal(download.status, 200);
 	assert.equal(download.headers.get('Accept-Ranges'), 'none');
-	assert.equal(download.headers.get('Content-Length'), head.headers.get('Content-Length'));
+	assert.equal(download.headers.get('Content-Length'), null);
+	assert.equal(download.headers.get('Content-Range'), null);
 	assert.equal(download.headers.get('Cache-Control'), 'private, no-store');
 	const zip = Buffer.from(await download.arrayBuffer());
-	assert.equal(zip.length, Number(head.headers.get('Content-Length')));
 	assert.equal(zip.readUInt32LE(0), 0x04034b50);
 	assert.equal(zip.readUInt32LE(zip.length - 22), 0x06054b50);
 	assert.ok(zip.includes('Archive folder/Empty folder/'));
@@ -74,6 +76,10 @@ test('a shared folder ZIP URL supports HEAD and GET with the index login', async
 	assert.ok(zip.includes(body.video));
 	assert.ok(zip.includes(body.copy));
 	assert.ok(!zip.includes('.Password'));
+
+	const { response } = await prepareFolderZip(env, '/Archive%20folder/');
+	assert.equal(response.headers.get('Content-Length'), String(zip.length));
+	assert.deepEqual(Buffer.from(await response.arrayBuffer()), zip);
 });
 
 test('the ZIP writer preserves ZIP64 sizes over 4 GiB without buffering files', async () => {
