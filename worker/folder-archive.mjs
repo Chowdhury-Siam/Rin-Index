@@ -113,19 +113,16 @@ function archiveHeaders(root) {
 	});
 }
 
-async function liveArchive(request, drive, { id, root }, headers) {
+async function liveArchive(request, drive, { id, root }, headers, includeLength = false) {
 	const entries = await archiveEntries(drive, id, root, request.signal);
-	const length = zipLength(entries);
-	if (length !== undefined) headers.set('Content-Length', length.toString());
+	if (includeLength) {
+		const length = zipLength(entries);
+		if (length !== undefined) headers.set('Content-Length', length.toString());
+	}
 	if (request.method === 'HEAD') return new Response(null, { headers });
 
-	let body = zipStream(entries, (entry, signal) => openFile(drive, entry, signal), request.signal);
-	if (typeof FixedLengthStream === 'function' && length !== undefined && length <= BigInt(Number.MAX_SAFE_INTEGER)) {
-		const fixed = new FixedLengthStream(length);
-		// The response stream propagates any write or length error to the downloader.
-		body.pipeTo(fixed.writable).catch(() => {});
-		body = fixed.readable;
-	}
+	// A known response length makes aria2 split live ZIPs even with Accept-Ranges: none.
+	const body = zipStream(entries, (entry, signal) => openFile(drive, entry, signal), request.signal);
 	return new Response(body, { headers, encodeBody: 'manual' });
 }
 
@@ -149,7 +146,7 @@ export async function prepareArchive(request, drive, path) {
 	const folder = await findFolder(drive, path);
 	if (!folder) throw new Error('Folder not found in this Drive index.');
 	const key = await archiveKey(drive.authConfig.settings, folder.id);
-	const response = await liveArchive(request, drive, folder, archiveHeaders(folder.root));
+	const response = await liveArchive(request, drive, folder, archiveHeaders(folder.root), true);
 	return { key, response };
 }
 
