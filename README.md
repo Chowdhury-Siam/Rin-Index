@@ -36,7 +36,7 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your
 
 Open a folder and click **Download folder**, or click **Copy ZIP link** to share the direct URL or paste it into a download manager. A private index requires the same username and password when opening the ZIP link.
 
-The Worker can stream a ZIP64 archive on demand over a single connection. An interrupted on-demand transfer starts again from the beginning. Large on-demand ZIPs can exceed the CPU or request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+The Worker streams on-demand ZIP64 archives over a single connection. Download managers may show an unknown total size until the stream finishes. After an interruption, start a new download from the ZIP link. Large on-demand ZIPs can exceed the CPU or request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
 ### Prepare resumable ZIPs for large folders
 
