@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readSettings } from '../worker/settings.mjs';
+import { folderMimeType, readSettings } from '../worker/settings.mjs';
 
 const env = {
 	GOOGLE_CLIENT_ID: 'test-client',
@@ -12,7 +12,10 @@ const env = {
 const auth = 'Basic ' + Buffer.from('viewer:test:password').toString('base64');
 
 test('configuration requires a root and makes password protection optional', () => {
-	assert.throws(() => readSettings({ ...env, DRIVE_ROOT_ID: '' }), /DRIVE_ROOT_ID/);
+	assert.throws(() => readSettings({ ...env, DRIVE_ROOT_ID: '' }), /DRIVE_ID/);
+	assert.throws(() => readSettings({ ...env, DRIVE_ID: 'not/a/folder/id' }), /DRIVE_ID/);
+	assert.equal(readSettings(env).DRIVE_ID, 'root');
+	assert.equal(readSettings({ ...env, DRIVE_ID: '  folder-id  ' }).DRIVE_ID, 'folder-id');
 	assert.equal(readSettings(env).INDEX_USERNAME, 'viewer');
 	assert.equal(readSettings(env).SITE_NAME, 'Rin Index');
 	assert.equal(readSettings(env).PROTECT_FILE_LINK, 'false');
@@ -34,7 +37,7 @@ test('opt-in download protection requires the index password', async t => {
 			return Response.json({ access_token: 'test-access', expires_in: 3600 });
 		}
 		assert.equal(options.headers.authorization, 'Bearer test-access');
-		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
 		if (url.pathname.endsWith('/files')) {
 			assert.match(url.searchParams.get('q'), /'root' in parents/);
 			return Response.json({ files: [{ id: 'file-id', name: 'hello & goodbye.html' }] });
@@ -83,7 +86,7 @@ test('direct downloads work without the password by default', async t => {
 	t.mock.method(globalThis, 'fetch', async url => {
 		url = new URL(url);
 		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
-		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
 		if (url.pathname.endsWith('/files')) {
 			return Response.json({ files: [{ id: 'file-id', name: 'hello.txt' }] });
 		}
@@ -99,28 +102,59 @@ test('direct downloads work without the password by default', async t => {
 	assert.equal(await download.text(), 'hello');
 });
 
-test('a public folder can be listed without a password', async t => {
-	const { default: worker } = await import('../worker/worker-beta.js?public-test');
-	t.mock.method(globalThis, 'fetch', async url => {
-		url = new URL(url);
-		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
-		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root' });
-		if (url.pathname.endsWith('/drives/folder-id')) return Response.json({}, { status: 404 });
-		if (url.pathname.endsWith('/files')) {
-			assert.match(url.searchParams.get('q'), /'folder-id' in parents/);
-			return Response.json({ files: [] });
-		}
-		assert.fail(`Unexpected request ${url}`);
+const rootCases = [
+	{ name: 'a My Drive folder', parents: ['parent-id'], rootType: 2 },
+	{ name: 'a shared folder when My Drive is unavailable', unavailableMyDrive: true, rootType: 2 },
+	{ name: 'a folder inside a Shared Drive', driveId: 'shared-drive', parents: ['parent-id'], rootType: 2 },
+	{ name: 'a whole Shared Drive', driveId: 'folder-id', rootType: 1 },
+	{ name: 'the actual My Drive root ID', myDriveRoot: true, rootType: 0 }
+];
+
+for (const { name, driveId, parents, myDriveRoot, unavailableMyDrive, rootType } of rootCases) {
+	test(`DRIVE_ID exposes ${name} at the index root`, async t => {
+		const { default: worker } = await import(`../worker/worker-beta.js?root=${encodeURIComponent(name)}`);
+		const folder = { id: 'folder-id', mimeType: folderMimeType, driveId, parents };
+		const file = { id: 'file-id', name: 'ARC 01.zip', mimeType: 'application/zip', size: '3' };
+		const subfolder = { id: 'subfolder-id', name: 'Subfolder', mimeType: folderMimeType };
+		t.mock.method(globalThis, 'fetch', async input => {
+			const url = new URL(input);
+			if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+			assert.equal(url.searchParams.get('supportsAllDrives'), 'true');
+			if (url.pathname.endsWith('/files/folder-id')) return Response.json(folder);
+			if (myDriveRoot && url.pathname.endsWith('/files/root')) return Response.json(folder);
+			if (unavailableMyDrive && url.pathname.endsWith('/files/root')) return new Response(null, { status: 404 });
+			if (url.pathname.endsWith('/files/file-id')) {
+				if (url.searchParams.get('alt') === 'media') return new Response('zip');
+				return Response.json({ ...file, parents: ['folder-id'] });
+			}
+			assert.equal(url.pathname, '/drive/v3/files');
+			assert.equal(url.searchParams.get('includeItemsFromAllDrives'), 'true');
+			assert.equal(url.searchParams.get('corpora'), rootType === 1 ? 'drive' : 'user');
+			assert.equal(url.searchParams.get('driveId'), rootType === 1 ? driveId : null);
+			const query = url.searchParams.get('q');
+			if (query.startsWith("'subfolder-id' in parents")) return Response.json({ files: [] });
+			assert.match(query, /^'folder-id' in parents/);
+			if (query.includes("name = 'Subfolder'")) return Response.json({ files: [subfolder] });
+			if (query.includes("name = 'ARC 01.zip'")) return Response.json({ files: [file] });
+			return Response.json({ files: [subfolder, file] });
+		});
+		const config = { ...env, DRIVE_ID: 'folder-id', INDEX_PASSWORD: '' };
+		const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), config);
+		const post = fields => ({ method: 'POST', body: new URLSearchParams(fields) });
+		const page = await request('/0:/');
+		assert.equal(page.status, 200);
+		assert.match(await page.text(), new RegExp(`"root_type":${rootType}`));
+		const listing = await request('/0:/', post({ page_index: '0' }));
+		assert.deepEqual((await listing.json()).data.files, [subfolder, file]);
+		const nested = await request('/0:/Subfolder/', post({ page_index: '0' }));
+		assert.deepEqual((await nested.json()).data.files, []);
+		const link = await request('/0:id2path', post({ id: file.id }));
+		assert.equal(await link.text(), '/ARC%2001.zip');
+		const download = await request('/0:/ARC%2001.zip');
+		assert.equal(download.status, 200);
+		assert.equal(await download.text(), 'zip');
+		const archive = await request('/0:/?download=zip', { method: 'HEAD' });
+		assert.equal(archive.status, 200);
+		assert.equal(archive.headers.get('Content-Type'), 'application/zip');
 	});
-	const publicEnv = {
-		...env, DRIVE_ROOT_ID: 'folder-id', INDEX_PASSWORD: ''
-	};
-	const url = 'https://index.test/0:/';
-	const response = await worker.fetch(new Request(url), publicEnv);
-	assert.equal(response.status, 200);
-	assert.match(await response.text(), /"root_type":2/);
-	const listing = await worker.fetch(new Request(url, {
-		method: 'POST', body: new URLSearchParams({ page_index: '0' })
-	}), publicEnv);
-	assert.deepEqual((await listing.json()).data.files, []);
-});
+}
