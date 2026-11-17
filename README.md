@@ -82,7 +82,7 @@ When updating from the browser-based folder downloader, remove the old files `pu
 
 1. In **Workers & Pages**, set up your `workers.dev` subdomain and copy the **Account ID**.
 2. Create a Cloudflare API token using **Edit Cloudflare Workers** and scope it to your Cloudflare account. [Cloudflare’s GitHub Actions setup](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)
-3. To choose the Worker that GitHub Actions deploys to, set the `CLOUDFLARE_WORKER_NAME` repository secret to the Worker name, such as `rin-index`. Enter just the name. If you leave the secret unset, the workflow uses the `name` in `wrangler.toml`, which defaults to `bhadoo-drive-index`. [Cloudflare’s workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
+3. GitHub Actions deploys to `rin-index` by default, using the `name` in `wrangler.toml`. To deploy to a different Worker, set the `CLOUDFLARE_WORKER_NAME` repository secret to that Worker's name. [Cloudflare’s workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 
 ### 3. Add your repository secrets
 
