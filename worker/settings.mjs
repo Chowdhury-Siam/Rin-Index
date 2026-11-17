@@ -2,14 +2,16 @@ export const folderMimeType = 'application/vnd.google-apps.folder';
 
 export function readSettings(env) {
 	const settings = {};
-	for (const name of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'DRIVE_ROOT_ID']) {
+	for (const name of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN']) {
 		const value = env[name]?.trim();
 		if (!value) throw new Error(`Set ${name} before deploying.`);
 		settings[name] = value;
 	}
 
-	if (!/^[A-Za-z0-9_-]+$/.test(settings.DRIVE_ROOT_ID)) {
-		throw new Error('DRIVE_ROOT_ID must be a folder ID, Shared Drive ID, or root.');
+	settings.DRIVE_ID = env.DRIVE_ID?.trim() || env.DRIVE_ROOT_ID?.trim();
+	if (!settings.DRIVE_ID) throw new Error('Set DRIVE_ID before deploying.');
+	if (!/^[A-Za-z0-9_-]+$/.test(settings.DRIVE_ID)) {
+		throw new Error('DRIVE_ID must be a folder ID, Shared Drive ID, or root.');
 	}
 	settings.SITE_NAME = env.SITE_NAME?.trim() || 'Rin Index';
 	const hasPassword = Boolean(env.INDEX_PASSWORD?.trim());
@@ -33,6 +35,23 @@ export function readSettings(env) {
 		settings.INDEX_PASSWORD = env.INDEX_PASSWORD;
 	}
 	return settings;
+}
+
+export async function readDriveRoot(driveId, accessToken) {
+	const url = new URL(`https://www.googleapis.com/drive/v3/files/${driveId}`);
+	url.search = new URLSearchParams({ fields: 'id,mimeType,trashed,driveId,parents', supportsAllDrives: 'true' });
+	const response = await fetch(url, {
+		headers: { authorization: `Bearer ${accessToken}` },
+		signal: AbortSignal.timeout(15000)
+	});
+	if (!response.ok) {
+		throw new Error(`Google Drive could not open DRIVE_ID (HTTP ${response.status}). Check the folder ID and share the folder directly with the Google account that authorized Rin Index.`);
+	}
+	const folder = await response.json();
+	if (!folder.id || folder.mimeType !== folderMimeType || folder.trashed) {
+		throw new Error('DRIVE_ID must point to an existing folder or Shared Drive.');
+	}
+	return folder;
 }
 
 export async function refreshGoogleToken(settings) {
