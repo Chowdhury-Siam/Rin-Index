@@ -1,5 +1,5 @@
 export async function archiveKey(settings, folderId) {
-	const scope = JSON.stringify([settings.DRIVE_ROOT_ID, settings.GOOGLE_REFRESH_TOKEN, folderId]);
+	const scope = JSON.stringify([settings.DRIVE_ID, settings.GOOGLE_REFRESH_TOKEN, folderId]);
 	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(scope));
 	return 'archives/' + [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
