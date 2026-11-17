@@ -99,6 +99,12 @@ function driveQueryValue(value) {
 	return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
 
+function encodeDownloadFilename(name) {
+	return encodeURIComponent(name).replace(/[!'()*]/g, char =>
+		'%' + char.charCodeAt(0).toString(16).toUpperCase()
+	);
+}
+
 function html(order, model) {
 	const name = authConfig.roots[order].name;
 	const title = name === 'Rin Index' ? name : name + ' · Rin Index';
@@ -376,6 +382,7 @@ class googleDrive {
 			if (myDrive?.id === folder.id) rootType = types.user_drive;
 		}
 		this.rootFolderId = folder.id;
+		this.rootFolderName = folder.name || this.root.name;
 		this.id_path_cache[folder.id] = '/';
 		this.root_type = rootType;
 	}
@@ -394,15 +401,20 @@ class googleDrive {
 			return new Response('Link lists are unavailable with per-folder passwords.', { status: 403 });
 		}
 		let folderId = this.rootFolderId;
-		for (const name of path.split('/').filter(Boolean)) {
-			if (decodeURIComponent(name).toLowerCase() === '.password') return new Response('Folder not found.', { status: 404 });
-			folderId = await this._findDirId(folderId, name);
+		let folderName = this.rootFolderName;
+		for (const segment of path.split('/').filter(Boolean)) {
+			folderName = decodeURIComponent(segment);
+			if (folderName.toLowerCase() === '.password') return new Response('Folder not found.', { status: 404 });
+			folderId = await this._findDirId(folderId, segment);
 			if (!folderId) return new Response('Folder not found.', { status: 404 });
 		}
 
+		const safeName = folderName.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/[. ]+$/, '') || 'folder';
+		const filename = safeName + '.txt';
+		const fallback = filename.normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\x20-\x7e]|%/g, '_');
 		const headers = {
 			'Content-Type': 'text/plain; charset=utf-8',
-			'Content-Disposition': 'attachment; filename="folder-links.txt"'
+			'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encodeDownloadFilename(filename)}`
 		};
 		if (headOnly) return new Response(null, { headers });
 
@@ -495,9 +507,7 @@ class googleDrive {
 		const mimeType = headers.get('Content-Type')?.split(';')[0].toLowerCase() || '';
 		const canPreview = /^(audio\/|video\/|image\/(png|jpeg|gif|bmp|webp|avif)$|application\/pdf$)/.test(mimeType);
 		const showInline = inline && canPreview;
-		const filename = encodeURIComponent(fileName).replace(/[!'()*]/g, char =>
-			'%' + char.charCodeAt(0).toString(16).toUpperCase()
-		);
+		const filename = encodeDownloadFilename(fileName);
 		headers.set('Content-Disposition', `${showInline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}`);
 		if (!showInline) headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
 		return response;
