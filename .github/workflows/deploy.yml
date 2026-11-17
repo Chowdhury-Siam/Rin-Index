@@ -47,6 +47,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           INDEX_PASSWORD: ${{ secrets.INDEX_PASSWORD }}
+          DRIVE_ID: ${{ secrets.DRIVE_ID }}
           DRIVE_ROOT_ID: ${{ secrets.DRIVE_ROOT_ID }}
           INDEX_PUBLIC: ${{ secrets.INDEX_PUBLIC }}
           INDEX_USERNAME: ${{ secrets.INDEX_USERNAME }}
