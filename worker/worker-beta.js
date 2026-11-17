@@ -242,6 +242,12 @@ async function handleRequest(request) {
 	}
 
 	await gd.initRootType();
+	if (path.endsWith('/') && url.searchParams.get('download') === 'links') {
+		if (request.method !== 'GET' && request.method !== 'HEAD') {
+			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
+		}
+		return gd.downloadLinkList(path, url, request.method === 'HEAD');
+	}
 	if (request.method === 'POST') return apiRequest(request, gd);
 	if (servesIndex) {
 		return new Response(html(gd.order, { root_type: gd.root_type }), {
@@ -381,6 +387,58 @@ class googleDrive {
 			params.driveId = this.rootFolderId;
 		}
 		return params;
+	}
+
+	async downloadLinkList(path, url, headOnly) {
+		if (this.authConfig.enable_password_file_verify) {
+			return new Response('Link lists are unavailable with per-folder passwords.', { status: 403 });
+		}
+		let folderId = this.rootFolderId;
+		for (const name of path.split('/').filter(Boolean)) {
+			if (decodeURIComponent(name).toLowerCase() === '.password') return new Response('Folder not found.', { status: 404 });
+			folderId = await this._findDirId(folderId, name);
+			if (!folderId) return new Response('Folder not found.', { status: 404 });
+		}
+
+		const headers = {
+			'Content-Type': 'text/plain; charset=utf-8',
+			'Content-Disposition': 'attachment; filename="folder-links.txt"'
+		};
+		if (headOnly) return new Response(null, { headers });
+
+		const folders = [[folderId, url.pathname]];
+		const links = [];
+		let offset = 0;
+		while (offset < folders.length) {
+			// Query several subfolders together to stay within Workers Free subrequest limits.
+			const batch = folders.slice(offset, offset + 50);
+			offset += batch.length;
+			const folderPaths = new Map(batch);
+			const parents = batch.map(([id]) => `'${driveQueryValue(id)}' in parents`).join(' or ');
+			const params = {
+				...this.fileListParams(),
+				q: `(${parents}) and trashed = false and name != '.password'`,
+				fields: 'nextPageToken,files(id,name,parents,mimeType,capabilities(canDownload))',
+				orderBy: 'name',
+				pageSize: 1000
+			};
+			let pageToken;
+			do {
+				if (pageToken) params.pageToken = pageToken;
+				const response = await fetch('https://www.googleapis.com/drive/v3/files?' + this.enQuery(params), await this.requestOption());
+				if (!response.ok) throw new Error(`Drive link listing failed (HTTP ${response.status}).`);
+				const listing = await response.json();
+				for (const file of listing.files) {
+					const folderPath = folderPaths.get(file.parents?.[0]);
+					if (!folderPath || file.name.toLowerCase() === '.password') continue;
+					const filePath = folderPath + encodeURIComponent(file.name);
+					if (file.mimeType === folderMimeType) folders.push([file.id, filePath + '/']);
+					else if (file.capabilities?.canDownload !== false) links.push(url.origin + filePath);
+				}
+				pageToken = listing.nextPageToken;
+			} while (pageToken);
+		}
+		return new Response(links.length ? links.join('\n') + '\n' : '', { headers });
 	}
 
 	/**
