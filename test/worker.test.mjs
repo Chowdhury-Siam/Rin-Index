@@ -102,6 +102,32 @@ test('direct downloads work without the password by default', async t => {
 	assert.equal(await download.text(), 'hello');
 });
 
+test('Workspace exports and Drive shortcuts download individually', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?workspace-downloads');
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname.endsWith('/files')) {
+			const query = url.searchParams.get('q');
+			const file = query.includes("name = 'Document'")
+				? { id: 'doc-id', name: 'Document', mimeType: 'application/vnd.google-apps.document' }
+				: { id: 'shortcut-id', name: 'Shortcut', mimeType: 'application/vnd.google-apps.shortcut' };
+			return Response.json({ files: [file] });
+		}
+		assert.equal(url.pathname, '/drive/v3/files/doc-id/export');
+		assert.equal(url.searchParams.get('mimeType'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+		return new Response('exported document');
+	});
+	const get = name => worker.fetch(new Request('https://index.test/0:/' + name), env);
+	const exported = await get('Document');
+	assert.equal(exported.headers.get('Content-Disposition'), "attachment; filename*=UTF-8''Document.docx");
+	assert.equal(await exported.text(), 'exported document');
+	const shortcut = await get('Shortcut');
+	assert.equal(shortcut.headers.get('Content-Disposition'), "attachment; filename*=UTF-8''Shortcut.url");
+	assert.match(await shortcut.text(), /drive\.google\.com\/open\?id=shortcut-id/);
+});
+
 const rootCases = [
 	{ name: 'a My Drive folder', parents: ['parent-id'], rootType: 2 },
 	{ name: 'a shared folder when My Drive is unavailable', unavailableMyDrive: true, rootType: 2 },
@@ -153,8 +179,8 @@ for (const { name, driveId, parents, myDriveRoot, unavailableMyDrive, rootType }
 		const download = await request('/0:/ARC%2001.zip');
 		assert.equal(download.status, 200);
 		assert.equal(await download.text(), 'zip');
-		const archive = await request('/0:/?download=zip', { method: 'HEAD' });
-		assert.equal(archive.status, 200);
-		assert.equal(archive.headers.get('Content-Type'), 'application/zip');
+		const oldFolderLink = await request('/0:/?download=zip');
+		assert.equal(oldFolderLink.status, 200);
+		assert.match(oldFolderLink.headers.get('Content-Type'), /^text\/html/);
 	});
 }
