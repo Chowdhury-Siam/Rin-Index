@@ -39,7 +39,7 @@ export function readSettings(env) {
 
 export async function readDriveRoot(driveId, accessToken) {
 	const url = new URL(`https://www.googleapis.com/drive/v3/files/${driveId}`);
-	url.search = new URLSearchParams({ fields: 'id,mimeType,trashed,driveId,parents', supportsAllDrives: 'true' });
+	url.search = new URLSearchParams({ fields: 'id,name,mimeType,trashed,driveId,parents', supportsAllDrives: 'true' });
 	const response = await fetch(url, {
 		headers: { authorization: `Bearer ${accessToken}` },
 		signal: AbortSignal.timeout(15000)
