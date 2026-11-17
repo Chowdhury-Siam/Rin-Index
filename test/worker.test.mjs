@@ -128,6 +128,52 @@ test('Workspace exports and Drive shortcuts download individually', async t => {
 	assert.match(await shortcut.text(), /drive\.google\.com\/open\?id=shortcut-id/);
 });
 
+test('the folder link list is a private HTTP attachment with one direct URL per file', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?link-list');
+	const folder = (id, name, parent) => ({ id, name, parents: [parent], mimeType: folderMimeType });
+	const file = (name, parent, canDownload = true) => ({ name, parents: [parent], capabilities: { canDownload } });
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		assert.equal(url.pathname, '/drive/v3/files');
+		const query = url.searchParams.get('q');
+		if (query.startsWith("'real-root' in parents")) {
+			const files = query.includes("name = 'ARC 01'") ? [folder('arc', 'ARC 01', 'real-root')] : [];
+			return Response.json({ files });
+		}
+		assert.match(url.searchParams.get('fields'), /parents/);
+		if (query.startsWith("('arc' in parents)")) {
+			if (url.searchParams.get('pageToken') === 'next') {
+				return Response.json({ files: [file('Episode 02.mkv', 'arc'), file('.Password', 'arc'), file('Blocked.txt', 'arc', false)] });
+			}
+			return Response.json({ files: [folder('extras', 'Extras', 'arc'), folder('empty', 'Empty', 'arc'), file('Episode & 01.mkv', 'arc')], nextPageToken: 'next' });
+		}
+		assert.match(query, /^\('extras' in parents or 'empty' in parents\)/);
+		return Response.json({ files: [file('Subs #1.srt', 'extras')] });
+	});
+	const get = (path, headers, method = 'GET') => worker.fetch(new Request('https://index.test' + path, { headers, method }), env);
+	const endpoint = '/0:/ARC%2001/?download=links';
+	const headers = { Authorization: auth };
+	assert.equal((await get(endpoint, {})).status, 401);
+	assert.equal((await get('/0:/Missing/?download=links', headers)).status, 404);
+	assert.equal((await get(endpoint, headers, 'POST')).status, 405);
+	const head = await get(endpoint, headers, 'HEAD');
+	assert.equal(head.headers.get('Content-Disposition'), 'attachment; filename="folder-links.txt"');
+	assert.equal(head.body, null);
+	const download = await get(endpoint, headers);
+	assert.equal(download.status, 200);
+	assert.equal(download.headers.get('Content-Type'), 'text/plain; charset=utf-8');
+	assert.equal(download.headers.get('Content-Disposition'), 'attachment; filename="folder-links.txt"');
+	assert.equal(download.headers.get('Cache-Control'), 'private, no-store');
+	assert.equal(await download.text(), [
+		'https://index.test/0:/ARC%2001/Episode%20%26%2001.mkv',
+		'https://index.test/0:/ARC%2001/Episode%2002.mkv',
+		'https://index.test/0:/ARC%2001/Extras/Subs%20%231.srt',
+		''
+	].join('\n'));
+});
+
 const rootCases = [
 	{ name: 'a My Drive folder', parents: ['parent-id'], rootType: 2 },
 	{ name: 'a shared folder when My Drive is unavailable', unavailableMyDrive: true, rootType: 2 },
