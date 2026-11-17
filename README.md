@@ -18,7 +18,7 @@
 
 ## Meet Rin Index
 
-Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your own Cloudflare Worker. Google Drive remains the file source. The Worker reads the selected files using Google’s read-only Drive permission.
+Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Cloudflare Workers Free. Google Drive remains the file source. The Worker reads the selected files using Google’s read-only Drive permission.
 
 ## Features
 
@@ -28,36 +28,18 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on your
 | **Search** | Search by name when indexing My Drive or a Shared Drive. |
 | **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
 | **Download** | Download a file from its row or preview page. |
-| **Download folder** | Download the current folder and its subfolders as one ZIP, or copy its direct URL. |
+| **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
+| **Copy folder link** | Share the folder page so others can browse it or download its files. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
 
-### Download an entire folder
+### Download files from a folder
 
-Open a folder and click **Download folder**, or click **Copy ZIP link** to share the direct URL or paste it into a download manager. A private index requires the same username and password when opening the ZIP link.
+Open the folder and click **Download files**. Keep the folder page open while it starts the downloads, and allow multiple downloads if prompted. Rin Index goes through every page of the folder and its subfolders. The browser controls when each transfer runs and where it saves each file.
 
-The Worker streams on-demand ZIP64 archives over a single connection. Download managers may show an unknown total size until the stream finishes. After an interruption, start a new download from the ZIP link. Large on-demand ZIPs can exceed the CPU or request limits of Workers Free. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+Use **Copy folder link** to share the folder page. Recipients open it in a browser and click **Download files**. Private folders use the index’s existing sign-in settings. For a mirror or leech bot, send the direct URL of each file you want it to download.
 
-### Prepare resumable ZIPs for large folders
-
-1. In Cloudflare **R2 Object Storage**, create a private bucket. Create an R2 API token with **Object Read & Write** access scoped to that bucket. Save its **Access Key ID** and **Secret Access Key**. [Cloudflare R2 setup](https://developers.cloudflare.com/r2/get-started/s3/)
-2. In GitHub, go to **Settings → Secrets and variables → Actions → Secrets**. Add these repository secrets.
-
-   | Secret | Value |
-   | --- | --- |
-   | `R2_ARCHIVE_BUCKET` | The R2 bucket name |
-   | `R2_ARCHIVE_ACCESS_KEY_ID` | The R2 access key ID |
-   | `R2_ARCHIVE_SECRET_ACCESS_KEY` | The R2 secret access key |
-
-3. Run **Actions → Deploy Rin Index** on `main` to connect the Worker to the bucket.
-4. Run **Actions → Prepare folder ZIP** on `main`. Paste the folder page URL from Rin Index into **folder**, then wait for the run to succeed.
-5. Open the folder and use **Copy ZIP link**. Start a new download after preparing the archive. Your download manager can resume that download or request multiple parts.
-
-The prepared ZIP is a snapshot. Run **Prepare folder ZIP** again to publish Drive changes. The previous ZIP remains available while its replacement uploads. R2 retains earlier ZIP versions until you delete them. To withdraw a prepared snapshot, remove its `current` object or the ZIP version it points to. Existing links follow the index's sign-in settings.
-
-The ZIP includes empty folders. Google Docs, Sheets, Slides, Drawings, and Apps Script files are exported. Google Drive shortcuts and Workspace files without a supported export are included as links. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
-
-When updating from the browser-based folder downloader, remove the old files `public/rin-folder-download.mjs` and `public/assets/js/folder-archive.mjs` from your repository.
+Supported Google Workspace files are exported individually. Other Google Drive formats and shortcuts can be saved as links to the original item. Google Drive may restrict downloading or exporting specific files. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
 
 ## Deploy
 
@@ -127,7 +109,7 @@ git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPO.git
 git push -u origin main
 ```
 
-To **upgrade an existing repository**, copy the project contents into its working folder, including `.github/workflows/deploy.yml`. Remove the old Bootstrap and MDUI assets under `public/assets`, the old `public/assets/favicon.ico`, and the two old screenshots in `images`. Commit the update and push to `main`.
+To **upgrade an existing repository**, copy the project contents into its working folder, including `.github/workflows/deploy.yml`. Remove the old Bootstrap and MDUI assets under `public/assets`, the old `public/assets/favicon.ico`, and the two old screenshots in `images`. If present, delete `.github/workflows/prepare-folder-zip.yml`, `scripts/prepare-folder-zip.mjs`, `worker/folder-archive.mjs`, `worker/stored-archive.mjs`, `worker/zip.mjs`, and `test/folder-archive.test.mjs`. Commit the update and push to `main`.
 
 Open **Actions → Deploy Rin Index**. The workflow runs the tests, prepares the browser assets, checks Google Drive access, and sends the code and Worker secrets to Cloudflare. Expand **Deploy to Cloudflare** to find your `workers.dev` URL. Open it and try browsing a folder and downloading a file.
 
