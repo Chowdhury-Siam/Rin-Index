@@ -64,10 +64,15 @@ jobs:
             fi
             printf '\n[[r2_buckets]]\nbinding = "RIN_ARCHIVES"\nbucket_name = "%s"\n' "$R2_ARCHIVE_BUCKET" >> wrangler.toml
           fi
-          wrangler deploy --secrets-file "$RUNNER_TEMP/rin-worker-secrets.json"
+          deploy_args=(--secrets-file "$RUNNER_TEMP/rin-worker-secrets.json")
+          if [[ -n "$CLOUDFLARE_WORKER_NAME" ]]; then
+            deploy_args+=("--name=$CLOUDFLARE_WORKER_NAME")
+          fi
+          wrangler deploy "${deploy_args[@]}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKER_NAME: ${{ secrets.CLOUDFLARE_WORKER_NAME }}
           R2_ARCHIVE_BUCKET: ${{ secrets.R2_ARCHIVE_BUCKET }}
 
       - name: Remove temporary secrets file
