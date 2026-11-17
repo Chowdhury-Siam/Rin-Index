@@ -37,7 +37,7 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 
 Open the folder and click **Download files**. Keep the folder page open while it starts the downloads, and allow multiple downloads if prompted. Rin Index goes through every page of the folder and its subfolders. The browser controls when each transfer runs and where it saves each file.
 
-For a mirror or leech bot, click **Save links (.txt)** to download `folder-links.txt` directly. Send the file to the bot and reply with your bot’s bulk command, such as `/leech -b` or `/mirror -b`. The list includes files in subfolders. If direct file links require sign-in, configure the bot to authenticate with Rin Index. [Mirror-Leech-Telegram-Bot bulk download support](https://github.com/anasty17/mirror-leech-telegram-bot#overall)
+For a mirror or leech bot, click **Save links (.txt)** to download a TXT file named after the folder. For example, **ARC 01** downloads as `ARC 01.txt`. Send the file to the bot and reply with your bot’s bulk command, such as `/leech -b` or `/mirror -b`. The list includes files in subfolders. If direct file links require sign-in, configure the bot to authenticate with Rin Index. [Mirror-Leech-Telegram-Bot bulk download support](https://github.com/anasty17/mirror-leech-telegram-bot#overall)
 
 Supported Google Workspace files are exported individually. Other Google Drive formats and shortcuts can be saved as links to the original item. Google Drive may restrict downloading or exporting specific files. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
 
