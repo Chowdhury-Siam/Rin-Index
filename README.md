@@ -82,7 +82,7 @@ When updating from the browser-based folder downloader, remove the old files `pu
 
 1. In **Workers & Pages**, set up your `workers.dev` subdomain and copy the **Account ID**.
 2. Create a Cloudflare API token using **Edit Cloudflare Workers** and scope it to your Cloudflare account. [Cloudflare’s GitHub Actions setup](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)
-3. To upgrade the existing deployment at `bhadoo-drive-index.<subdomain>.workers.dev`, keep the `name` in `wrangler.toml`. For a new URL, set it to an available name such as `rin-index` before deploying. [Cloudflare’s workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
+3. To choose the Worker that GitHub Actions deploys to, set the `CLOUDFLARE_WORKER_NAME` repository secret to the Worker name, such as `rin-index`. Enter just the name. If you leave the secret unset, the workflow uses the `name` in `wrangler.toml`, which defaults to `bhadoo-drive-index`. [Cloudflare’s workers.dev setup](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 
 ### 3. Add your repository secrets
 
@@ -103,6 +103,7 @@ For `DRIVE_ROOT_ID`, copy the part of the Drive URL after `/folders/` and before
 
 | Optional secret | Default | Effect |
 | --- | --- | --- |
+| `CLOUDFLARE_WORKER_NAME` | `name` in `wrangler.toml` | Overrides the Cloudflare Worker name for GitHub Actions deployments. |
 | `SITE_NAME` | Rin Index | Labels the collection and the browser tab. |
 | `INDEX_PASSWORD` | Unset | Require a password to browse the index. |
 | `INDEX_USERNAME` | `viewer` | Set the username for password-protected browsing. |
