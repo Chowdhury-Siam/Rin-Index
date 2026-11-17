@@ -214,11 +214,10 @@ button:disabled { cursor: progress; opacity: .62; }
 .panel h2 { margin: 0; font-size: 1.23rem; letter-spacing: -.035em; }
 .panel-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .65rem; }
 .count { flex: none; margin: 0; color: var(--muted); font-size: .86rem; }
-.archive-feedback { padding: 0 1.4rem .85rem; }
-.archive-status { margin: 0; color: var(--muted); font-size: .87rem; overflow-wrap: anywhere; }
-.archive-link-input {
+.folder-feedback { display: grid; gap: .5rem; padding: 0 1.4rem .85rem; }
+.folder-feedback p { margin: 0; color: var(--muted); font-size: .87rem; overflow-wrap: anywhere; }
+.folder-link-input {
 	width: 100%;
-	margin-top: .5rem;
 	padding: .55rem .65rem;
 	border: 1px solid var(--border);
 	border-radius: .65rem;
@@ -442,7 +441,7 @@ audio.preview-media { border: 0; background: transparent; }
 	.hero { padding-inline: .3rem; }
 	.panel { border-radius: 1.05rem; }
 	.panel-top { border-bottom: 1px solid #a6e0b817; }
-	.panel-top:has(.download-folder:not([hidden])) { flex-wrap: wrap; }
+	.panel-top:has(.download-files:not([hidden])) { flex-wrap: wrap; }
 	.file-row { grid-template-columns: auto 1fr 2.5rem; grid-template-rows: minmax(2rem, auto) 1rem; column-gap: .45rem; row-gap: 0; min-height: 4.55rem; padding-block: .34rem .47rem; }
 	.file-name { grid-column: 1 / 3; grid-row: 1; min-height: auto; gap: .6rem; padding: .18rem 0 0; }
 	.file-name .file-icon { width: 2.14rem; height: 2.14rem; border-radius: .61rem; }
