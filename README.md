@@ -97,9 +97,11 @@ Create or open the GitHub repository, then go to **Settings → Secrets and vari
 | `GOOGLE_CLIENT_ID` | Your Web application’s OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | The matching OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | The **Refresh token** from Step 2 in the OAuth Playground |
-| `DRIVE_ROOT_ID` | The folder or Shared Drive ID. Use `root` to index all of My Drive. |
+| `DRIVE_ID` | The ID of the folder or Shared Drive you want to serve at `/0:/`. Use `root` to index all of My Drive. |
 
-For `DRIVE_ROOT_ID`, copy the part of the Drive URL after `/folders/` and before the `?`. For example, `/folders/1AbC_dEf-123?usp=sharing` gives `1AbC_dEf-123`.
+For `DRIVE_ID`, copy the part of the Drive URL after `/folders/` and before the `?`. For example, `/folders/1AbC_dEf-123?usp=sharing` gives `1AbC_dEf-123`. The Google account that authorized Rin Index must have access to the folder. If you already use `DRIVE_ROOT_ID`, it still works when `DRIVE_ID` is unset.
+
+If your mirror bot uploads to a fixed folder and sends links like `/0:/file.zip`, use that upload folder’s ID for `DRIVE_ID`. After deployment, files in that folder open directly from `/0:/`.
 
 | Optional secret | Default | Effect |
 | --- | --- | --- |
@@ -135,10 +137,10 @@ After editing a repository secret, start a fresh run with **Actions → Deploy R
 
 | What you see | What to check |
 | --- | --- |
-| **Set DRIVE_ROOT_ID before deploying** | Add the repository secret `DRIVE_ROOT_ID` and start a fresh workflow run. |
-| **DRIVE_ROOT_ID must be a folder ID, Shared Drive ID, or root** | Paste the ID from the folder URL, or enter `root` for My Drive. |
+| **Set DRIVE_ID before deploying** | Add the repository secret `DRIVE_ID` and start a fresh workflow run. |
+| **DRIVE_ID must be a folder ID, Shared Drive ID, or root** | Paste the ID from the folder URL, or enter `root` for My Drive. |
 | **Google rejected the token refresh** | Check that the client ID, client secret, and refresh token belong to the same OAuth client. Generate a new token if it expired. |
-| **Google Drive could not open DRIVE_ROOT_ID** | Check the folder ID, the Google account’s access to that folder, and whether the Drive API is enabled. |
+| **Google Drive could not open DRIVE_ID** | Check the folder ID and whether the Drive API is enabled. If the folder was shared with you, ask the owner to share it directly with the Google account that authorized Rin Index. |
 | **Cloudflare rejects the deployment** | Check the account ID, token permissions, and `workers.dev` subdomain setup. |
 | **Search is missing** | Search is available for My Drive and Shared Drive roots. Use breadcrumbs to browse a selected subfolder. |
 
