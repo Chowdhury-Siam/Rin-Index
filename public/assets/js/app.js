@@ -39,6 +39,7 @@ document.body.innerHTML = `
 					<div class="panel-tools">
 						<p class="count"></p>
 						<button class="button button-secondary copy-folder-link" type="button" hidden>Copy folder link</button>
+						<button class="button button-secondary save-folder-links" type="button" hidden>Save links (.txt)</button>
 						<button class="button button-primary download-files" type="button" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download files</button>
 					</div>
 				</div>
@@ -245,6 +246,7 @@ const count = document.querySelector('.count');
 const folderPassword = document.querySelector('.folder-password');
 const downloadFilesButton = document.querySelector('.download-files');
 const copyFolderButton = document.querySelector('.copy-folder-link');
+const saveLinksButton = document.querySelector('.save-folder-links');
 const folderFeedback = document.querySelector('.folder-feedback');
 const folderLink = document.querySelector('.folder-link-input');
 const copyStatus = document.querySelector('.copy-status');
@@ -271,46 +273,69 @@ async function copyFolderLink() {
 	}
 }
 
-async function downloadFolderFiles() {
+async function* folderFiles() {
+	const folders = [path];
+	for (const folder of folders) {
+		let pageToken = '';
+		let index = 0;
+		do {
+			const fields = { page_index: index, page_token: pageToken };
+			if (folder === path && password) fields.password = password;
+			const response = await post(folder, fields);
+			const listing = await response.json();
+			if (!Array.isArray(listing.data?.files)) throw new Error('Could not list ' + nameFromPath(folder.split('/').at(-2)) + '.');
+			for (const file of listing.data.files) {
+				const filePath = folder + encodeURIComponent(file.name);
+				if (file.mimeType === folderMime) folders.push(filePath + '/');
+				else yield { file, filePath };
+			}
+			pageToken = listing.nextPageToken;
+			index++;
+		} while (pageToken);
+	}
+}
+
+function startDownload(url, name) {
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = name;
+	link.hidden = true;
+	document.body.append(link);
+	link.click();
+	link.remove();
+}
+
+async function downloadFolderFiles(saveList = false) {
 	downloadFilesButton.disabled = true;
+	saveLinksButton.disabled = true;
 	folderFeedback.hidden = false;
 	downloadStatus.hidden = false;
-	downloadStatus.textContent = 'Finding files… Allow multiple downloads if your browser asks.';
-	const folders = [path];
+	downloadStatus.textContent = saveList ? 'Collecting file links…' : 'Finding files… Allow multiple downloads if your browser asks.';
+	const links = [];
 	let requested = 0;
 	let skipped = 0;
 	try {
-		for (const folder of folders) {
-			let pageToken = '';
-			let index = 0;
-			do {
-				const fields = { page_index: index, page_token: pageToken };
-				if (folder === path && password) fields.password = password;
-				const response = await post(folder, fields);
-				const listing = await response.json();
-				if (!Array.isArray(listing.data?.files)) throw new Error('Could not list ' + nameFromPath(folder.split('/').at(-2)) + '.');
-				for (const file of listing.data.files) {
-					const filePath = folder + encodeURIComponent(file.name);
-					if (file.mimeType === folderMime) {
-						folders.push(filePath + '/');
-					} else if (file.capabilities?.canDownload === false) {
-						skipped++;
-					} else {
-						const link = downloadLink(filePath, file.name);
-						link.hidden = true;
-						document.body.append(link);
-						link.click();
-						link.remove();
-						requested++;
-						downloadStatus.textContent = 'Starting downloads… ' + numbers.format(requested) + ' requested. Allow multiple downloads if asked.';
-						await new Promise(resolve => setTimeout(resolve, 350));
-					}
-				}
-				pageToken = listing.nextPageToken;
-				index++;
-			} while (pageToken);
+		for await (const { file, filePath } of folderFiles()) {
+			if (file.capabilities?.canDownload === false) {
+				skipped++;
+			} else if (saveList) {
+				links.push(new URL(filePath, location.origin).href);
+			} else {
+				startDownload(filePath, file.name);
+				requested++;
+				downloadStatus.textContent = 'Starting downloads… ' + numbers.format(requested) + ' requested. Allow multiple downloads if asked.';
+				await new Promise(resolve => setTimeout(resolve, 350));
+			}
 		}
-		let message = requested ? 'Check your browser’s downloads. ' + numbers.format(requested) + ' requested.' : 'No downloadable files found.';
+		let message = 'No downloadable files found.';
+		if (links.length) {
+			const objectUrl = URL.createObjectURL(new Blob([links.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }));
+			startDownload(objectUrl, 'folder-links.txt');
+			setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+			message = numbers.format(links.length) + (links.length === 1 ? ' link in folder-links.txt.' : ' links in folder-links.txt.');
+		} else if (requested) {
+			message = 'Check your browser’s downloads. ' + numbers.format(requested) + ' requested.';
+		}
 		if (skipped) message += ' Google Drive restricted ' + numbers.format(skipped) + (skipped === 1 ? ' file.' : ' files.');
 		downloadStatus.textContent = message;
 	} catch (error) {
@@ -318,6 +343,7 @@ async function downloadFolderFiles() {
 		downloadStatus.textContent = progress + error.message;
 	} finally {
 		downloadFilesButton.disabled = false;
+		saveLinksButton.disabled = false;
 	}
 }
 
@@ -423,7 +449,9 @@ if (isSearch || isFolder) {
 	if (isFolder && !isSearch) {
 		downloadFilesButton.hidden = false;
 		copyFolderButton.hidden = false;
-		downloadFilesButton.addEventListener('click', downloadFolderFiles);
+		saveLinksButton.hidden = false;
+		downloadFilesButton.addEventListener('click', () => downloadFolderFiles());
+		saveLinksButton.addEventListener('click', () => downloadFolderFiles(true));
 		copyFolderButton.addEventListener('click', copyFolderLink);
 	}
 	loadButton.addEventListener('click', loadPage);
