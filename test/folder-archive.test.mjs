@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { folderMimeType } from '../worker/settings.mjs';
+import { folderMimeType, readSettings } from '../worker/settings.mjs';
 import { archiveKey } from '../worker/stored-archive.mjs';
 import { zipLength, zipStream } from '../worker/zip.mjs';
 
@@ -23,6 +23,7 @@ test('a live folder ZIP streams without a declared length and still supports pre
 		calls.push(url);
 		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'token' });
 		const id = url.pathname.split('/').at(-1);
+		if (id === 'root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
 		if (url.searchParams.get('alt') === 'media') {
 			return new Response(body[id], { headers: { 'Content-Type': 'application/octet-stream' } });
 		}
@@ -108,7 +109,7 @@ test('a prepared ZIP resumes by byte range through the same authenticated URL', 
 	const { default: worker } = await import('../worker/worker-beta.js?prepared-zip');
 	const payload = Buffer.from('0123456789');
 	const folder = { id: 'arc-01', name: 'ARC 01', mimeType: folderMimeType };
-	const key = await archiveKey(env, folder.id);
+	const key = await archiveKey(readSettings(env), folder.id);
 	const version = 'e15da210-3eec-4237-beb1-ac561f21398a';
 	const info = {
 		etag: 'archive-etag',
@@ -119,6 +120,7 @@ test('a prepared ZIP resumes by byte range through the same authenticated URL', 
 	t.mock.method(globalThis, 'fetch', async input => {
 		const url = new URL(input);
 		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'token' });
+		if (url.pathname.endsWith('/files/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
 		assert.match(url.searchParams.get('q'), /'root' in parents.*name = 'ARC 01'/);
 		return Response.json({ files: [folder] });
 	});
