@@ -1,7 +1,7 @@
 /**
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
-import { folderMimeType, readSettings, refreshGoogleToken } from './settings.mjs';
+import { folderMimeType, readDriveRoot, readSettings, refreshGoogleToken } from './settings.mjs';
 import { folderArchive, prepareArchive } from './folder-archive.mjs';
 
 const driveOptions = {
@@ -72,7 +72,7 @@ function configure(env) {
 		...driveOptions,
 		settings,
 		roots: [{
-			id: settings.DRIVE_ROOT_ID,
+			id: settings.DRIVE_ID,
 			name: settings.SITE_NAME,
 			user: settings.INDEX_USERNAME,
 			pass: settings.INDEX_PASSWORD,
@@ -89,7 +89,9 @@ function scriptJson(value) {
 export async function prepareFolderZip(env, path, signal) {
 	configure(env);
 	if (authConfig.enable_password_file_verify) throw new Error('Folder ZIP downloads are unavailable with per-folder passwords.');
-	return prepareArchive(new Request('https://rin-index.invalid/', { signal }), gds[0], path);
+	const drive = gds[0];
+	await drive.initRootType();
+	return prepareArchive(new Request('https://rin-index.invalid/', { signal }), drive, path);
 }
 
 function driveQueryValue(value) {
@@ -243,6 +245,7 @@ async function handleRequest(request, archiveBucket) {
 			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
 		}
 		if (authConfig.enable_password_file_verify) return new Response('Folder ZIP downloads are unavailable with per-folder passwords.', { status: 403 });
+		await gd.initRootType();
 		return folderArchive(request, gd, path, archiveBucket);
 	}
 	await gd.initRootType();
@@ -361,19 +364,30 @@ class googleDrive {
 	 */
 	async initRootType() {
 		if (this.root_type !== undefined) return;
-		if (!authConfig.user_drive_real_root_id) {
-			const root = await this.findItemById('root');
-			if (!root.id) throw new Error('Google Drive could not resolve My Drive.');
-			authConfig.user_drive_real_root_id = root.id;
-		}
-		const root_id = this.root['id'];
+		const folder = await readDriveRoot(this.root.id, await this.accessToken());
 		const types = CONSTS.gd_root_type;
-		if (root_id === 'root' || root_id === authConfig.user_drive_real_root_id) {
-			this.root_type = types.user_drive;
-		} else {
-			const obj = await this.getShareDriveObjById(root_id);
-			this.root_type = obj ? types.share_drive : types.sub_folder;
+		let rootType = types.sub_folder;
+		if (this.root.id === 'root') {
+			rootType = types.user_drive;
+		} else if (folder.driveId === folder.id) {
+			rootType = types.share_drive;
+		} else if (!folder.driveId && !folder.parents?.length) {
+			// A My Drive root can also be configured by its actual file ID.
+			const myDrive = await this.findItemById('root');
+			if (myDrive?.id === folder.id) rootType = types.user_drive;
 		}
+		this.rootFolderId = folder.id;
+		this.id_path_cache[folder.id] = '/';
+		this.root_type = rootType;
+	}
+
+	fileListParams() {
+		const params = { includeItemsFromAllDrives: true, supportsAllDrives: true, corpora: 'user' };
+		if (this.root_type === CONSTS.gd_root_type.share_drive) {
+			params.corpora = 'drive';
+			params.driveId = this.rootFolderId;
+		}
+		return params;
 	}
 
 	/**
@@ -436,10 +450,7 @@ class googleDrive {
 		if (!parent) return undefined;
 		// console.log(parent);
 		let url = 'https://www.googleapis.com/drive/v3/files';
-		let params = {
-			'includeItemsFromAllDrives': true,
-			'supportsAllDrives': true
-		};
+		const params = this.fileListParams();
 		params.q = `'${parent}' in parents and name = '${name}' and trashed = false`;
 		params.fields = "files(id, name, mimeType, size ,createdTime, modifiedTime, iconLink, thumbnailLink)";
 		url += '?' + this.enQuery(params);
@@ -496,10 +507,7 @@ class googleDrive {
 			return null;
 		}
 		let obj;
-		let params = {
-			'includeItemsFromAllDrives': true,
-			'supportsAllDrives': true
-		};
+		const params = this.fileListParams();
 		params.q = `'${parent}' in parents and trashed = false AND name !='.password'`;
 		params.orderBy = 'folder,name,modifiedTime desc';
 		params.fields = "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
@@ -553,28 +561,6 @@ class googleDrive {
 		}
 
 		return this.passwords[path];
-	}
-
-
-	/**
-	 * Get share drive information by id
-	 * @param any_id
-	 * @returns {Promise<null|{id}|any>} Any abnormal conditions are returned null
-	 */
-	async getShareDriveObjById(any_id) {
-		if (!any_id) return null;
-		if ('string' !== typeof any_id) return null;
-
-		let url = `https://www.googleapis.com/drive/v3/drives/${any_id}`;
-		let requestOption = await this.requestOption();
-		let res = await fetch(url, requestOption);
-		if (!res.ok && res.status !== 404 && res.status !== 403) {
-			throw new Error(`Shared Drive lookup failed (HTTP ${res.status}).`);
-		}
-		let obj = await res.json();
-		if (obj && obj.id) return obj;
-
-		return null
 	}
 
 
@@ -651,13 +637,7 @@ class googleDrive {
 	 */
 	async findParentFilesRecursion(child_id, contain_myself = true) {
 		const gd = this;
-		const gd_root_id = gd.root.id;
-		const user_drive_real_root_id = authConfig.user_drive_real_root_id;
-		const is_user_drive = gd.root_type === CONSTS.gd_root_type.user_drive;
-
-		// End point query id from bottom to top
-		const target_top_id = is_user_drive ? user_drive_real_root_id : gd_root_id;
-		const fields = CONSTS.default_file_fields;
+		const target_top_id = gd.rootFolderId;
 
 		// [{},{},...]
 		const parent_files = [];
@@ -734,11 +714,10 @@ class googleDrive {
 
 	// Get file item based on id
 	async findItemById(id) {
-		const is_user_drive = this.root_type === CONSTS.gd_root_type.user_drive;
-		let url = `https://www.googleapis.com/drive/v3/files/${id}?fields=${CONSTS.default_file_fields}${is_user_drive ? '' : '&supportsAllDrives=true'}`;
+		let url = `https://www.googleapis.com/drive/v3/files/${id}?fields=${CONSTS.default_file_fields}&supportsAllDrives=true`;
 		let requestOption = await this.requestOption();
 		let res = await fetch(url, requestOption);
-		return await res.json()
+		return res.ok ? res.json() : null;
 	}
 
 	async findPathId(path) {
@@ -773,15 +752,13 @@ class googleDrive {
 		}
 
 		let url = 'https://www.googleapis.com/drive/v3/files';
-		let params = {
-			'includeItemsFromAllDrives': true,
-			'supportsAllDrives': true
-		};
+		const params = this.fileListParams();
 		params.q = `'${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${name}'  and trashed = false`;
 		params.fields = "nextPageToken, files(id, name, mimeType)";
 		url += '?' + this.enQuery(params);
 		let requestOption = await this.requestOption();
 		let response = await fetch(url, requestOption);
+		if (!response.ok) throw new Error(`Drive folder lookup failed (HTTP ${response.status}).`);
 		let obj = await response.json();
 		if (obj.files[0] == undefined) {
 			return null;
