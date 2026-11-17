@@ -38,13 +38,14 @@ document.body.innerHTML = `
 					<h2></h2>
 					<div class="panel-tools">
 						<p class="count"></p>
-						<button class="button button-secondary copy-archive-link" type="button" hidden>Copy ZIP link</button>
-						<a class="button button-primary download-folder" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download folder</a>
+						<button class="button button-secondary copy-folder-link" type="button" hidden>Copy folder link</button>
+						<button class="button button-primary download-files" type="button" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download files</button>
 					</div>
 				</div>
-				<div class="archive-feedback" hidden>
-					<p class="archive-status" role="status"></p>
-					<input class="archive-link-input" type="url" aria-label="Folder ZIP link" readonly hidden>
+				<div class="folder-feedback" hidden>
+					<p class="copy-status" role="status" hidden></p>
+					<input class="folder-link-input" type="url" aria-label="Folder link" readonly hidden>
+					<p class="download-status" role="status" hidden></p>
 				</div>
 				<div class="column-labels" aria-hidden="true">
 					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
@@ -242,28 +243,81 @@ const loadButton = panelActions.querySelector('button');
 const fileList = document.querySelector('.file-list');
 const count = document.querySelector('.count');
 const folderPassword = document.querySelector('.folder-password');
-const archiveButton = document.querySelector('.download-folder');
-const copyArchive = document.querySelector('.copy-archive-link');
-const archiveFeedback = document.querySelector('.archive-feedback');
-const archiveLink = document.querySelector('.archive-link-input');
-const archiveStatus = document.querySelector('.archive-status');
+const downloadFilesButton = document.querySelector('.download-files');
+const copyFolderButton = document.querySelector('.copy-folder-link');
+const folderFeedback = document.querySelector('.folder-feedback');
+const folderLink = document.querySelector('.folder-link-input');
+const copyStatus = document.querySelector('.copy-status');
+const downloadStatus = document.querySelector('.download-status');
 let pageIndex = 0;
 let nextPageToken = '';
 let password = '';
 let loading = false;
 
 async function copyFolderLink() {
-	archiveFeedback.hidden = false;
-	archiveLink.hidden = true;
+	const url = new URL(path, location.origin).href;
+	folderFeedback.hidden = false;
+	copyStatus.hidden = false;
+	folderLink.hidden = true;
 	try {
-		await navigator.clipboard.writeText(archiveButton.href);
-		archiveStatus.textContent = 'Folder ZIP link copied.';
+		await navigator.clipboard.writeText(url);
+		copyStatus.textContent = 'Folder link copied.';
 	} catch {
-		archiveStatus.textContent = 'Select and copy the folder ZIP link below.';
-		archiveLink.value = archiveButton.href;
-		archiveLink.hidden = false;
-		archiveLink.focus();
-		archiveLink.select();
+		copyStatus.textContent = 'Select and copy the folder link below.';
+		folderLink.value = url;
+		folderLink.hidden = false;
+		folderLink.focus();
+		folderLink.select();
+	}
+}
+
+async function downloadFolderFiles() {
+	downloadFilesButton.disabled = true;
+	folderFeedback.hidden = false;
+	downloadStatus.hidden = false;
+	downloadStatus.textContent = 'Finding files… Allow multiple downloads if your browser asks.';
+	const folders = [path];
+	let requested = 0;
+	let skipped = 0;
+	try {
+		for (const folder of folders) {
+			let pageToken = '';
+			let index = 0;
+			do {
+				const fields = { page_index: index, page_token: pageToken };
+				if (folder === path && password) fields.password = password;
+				const response = await post(folder, fields);
+				const listing = await response.json();
+				if (!Array.isArray(listing.data?.files)) throw new Error('Could not list ' + nameFromPath(folder.split('/').at(-2)) + '.');
+				for (const file of listing.data.files) {
+					const filePath = folder + encodeURIComponent(file.name);
+					if (file.mimeType === folderMime) {
+						folders.push(filePath + '/');
+					} else if (file.capabilities?.canDownload === false) {
+						skipped++;
+					} else {
+						const link = downloadLink(filePath, file.name);
+						link.hidden = true;
+						document.body.append(link);
+						link.click();
+						link.remove();
+						requested++;
+						downloadStatus.textContent = 'Starting downloads… ' + numbers.format(requested) + ' requested. Allow multiple downloads if asked.';
+						await new Promise(resolve => setTimeout(resolve, 350));
+					}
+				}
+				pageToken = listing.nextPageToken;
+				index++;
+			} while (pageToken);
+		}
+		let message = requested ? 'Check your browser’s downloads. ' + numbers.format(requested) + ' requested.' : 'No downloadable files found.';
+		if (skipped) message += ' Google Drive restricted ' + numbers.format(skipped) + (skipped === 1 ? ' file.' : ' files.');
+		downloadStatus.textContent = message;
+	} catch (error) {
+		const progress = requested ? numbers.format(requested) + ' downloads requested. ' : '';
+		downloadStatus.textContent = progress + error.message;
+	} finally {
+		downloadFilesButton.disabled = false;
 	}
 }
 
@@ -367,12 +421,10 @@ async function previewFile() {
 if (isSearch || isFolder) {
 	panel.querySelector('h2').textContent = isSearch ? 'Matching files' : 'Files and folders';
 	if (isFolder && !isSearch) {
-		const url = new URL(path, location.origin);
-		url.searchParams.set('download', 'zip');
-		archiveButton.href = url.href;
-		archiveButton.hidden = false;
-		copyArchive.hidden = false;
-		copyArchive.addEventListener('click', copyFolderLink);
+		downloadFilesButton.hidden = false;
+		copyFolderButton.hidden = false;
+		downloadFilesButton.addEventListener('click', downloadFolderFiles);
+		copyFolderButton.addEventListener('click', copyFolderLink);
 	}
 	loadButton.addEventListener('click', loadPage);
 	folderPassword.addEventListener('submit', event => {
