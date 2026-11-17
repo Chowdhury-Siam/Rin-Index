@@ -132,15 +132,19 @@ test('the folder link list is a private HTTP attachment with one direct URL per 
 	const { default: worker } = await import('../worker/worker-beta.js?link-list');
 	const folder = (id, name, parent) => ({ id, name, parents: [parent], mimeType: folderMimeType });
 	const file = (name, parent, canDownload = true) => ({ name, parents: [parent], capabilities: { canDownload } });
+	const unicodeName = '日本語 & Café "Notes"';
 	t.mock.method(globalThis, 'fetch', async input => {
 		const url = new URL(input);
 		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
-		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/drive/v3/files/root') {
+			assert.ok(url.searchParams.get('fields').split(',').includes('name'));
+			return Response.json({ id: 'real-root', name: 'My Drive', mimeType: folderMimeType });
+		}
 		assert.equal(url.pathname, '/drive/v3/files');
 		const query = url.searchParams.get('q');
 		if (query.startsWith("'real-root' in parents")) {
-			const files = query.includes("name = 'ARC 01'") ? [folder('arc', 'ARC 01', 'real-root')] : [];
-			return Response.json({ files });
+			const folders = [folder('arc', 'ARC 01', 'real-root'), folder('unicode', unicodeName, 'real-root')];
+			return Response.json({ files: folders.filter(item => query.includes(`name = '${item.name}'`)) });
 		}
 		assert.match(url.searchParams.get('fields'), /parents/);
 		if (query.startsWith("('arc' in parents)")) {
@@ -159,12 +163,17 @@ test('the folder link list is a private HTTP attachment with one direct URL per 
 	assert.equal((await get('/0:/Missing/?download=links', headers)).status, 404);
 	assert.equal((await get(endpoint, headers, 'POST')).status, 405);
 	const head = await get(endpoint, headers, 'HEAD');
-	assert.equal(head.headers.get('Content-Disposition'), 'attachment; filename="folder-links.txt"');
+	const disposition = `attachment; filename="ARC 01.txt"; filename*=UTF-8''ARC%2001.txt`;
+	assert.equal(head.headers.get('Content-Disposition'), disposition);
 	assert.equal(head.body, null);
+	const root = await get('/0:/?download=links', headers, 'HEAD');
+	assert.equal(root.headers.get('Content-Disposition'), `attachment; filename="My Drive.txt"; filename*=UTF-8''My%20Drive.txt`);
+	const unicode = await get('/0:/' + encodeURIComponent(unicodeName) + '/?download=links', headers, 'HEAD');
+	assert.equal(unicode.headers.get('Content-Disposition'), `attachment; filename="___ & Cafe _Notes_.txt"; filename*=UTF-8''${encodeURIComponent('日本語 & Café _Notes_.txt')}`);
 	const download = await get(endpoint, headers);
 	assert.equal(download.status, 200);
 	assert.equal(download.headers.get('Content-Type'), 'text/plain; charset=utf-8');
-	assert.equal(download.headers.get('Content-Disposition'), 'attachment; filename="folder-links.txt"');
+	assert.equal(download.headers.get('Content-Disposition'), disposition);
 	assert.equal(download.headers.get('Cache-Control'), 'private, no-store');
 	assert.equal(await download.text(), [
 		'https://index.test/0:/ARC%2001/Episode%20%26%2001.mkv',
