@@ -2,7 +2,16 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readDriveRoot, readSettings, refreshGoogleToken } from './settings.mjs';
-import { folderArchive, prepareArchive } from './folder-archive.mjs';
+
+const googleMime = 'application/vnd.google-apps.';
+const officeMime = 'application/vnd.openxmlformats-officedocument.';
+const exportsByType = new Map([
+	['document', [officeMime + 'wordprocessingml.document', '.docx']],
+	['spreadsheet', [officeMime + 'spreadsheetml.sheet', '.xlsx']],
+	['presentation', [officeMime + 'presentationml.presentation', '.pptx']],
+	['drawing', ['application/pdf', '.pdf']],
+	['script', [googleMime + 'script+json', '.json']]
+]);
 
 const driveOptions = {
 	/**
@@ -86,14 +95,6 @@ function scriptJson(value) {
 	return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
-export async function prepareFolderZip(env, path, signal) {
-	configure(env);
-	if (authConfig.enable_password_file_verify) throw new Error('Folder ZIP downloads are unavailable with per-folder passwords.');
-	const drive = gds[0];
-	await drive.initRootType();
-	return prepareArchive(new Request('https://rin-index.invalid/', { signal }), drive, path);
-}
-
 function driveQueryValue(value) {
 	return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
@@ -128,7 +129,7 @@ export default {
 			return new Response('Drive index configuration is incomplete.', { status: 503 });
 		}
 		try {
-			const response = await handleRequest(request, env.RIN_ARCHIVES);
+			const response = await handleRequest(request);
 			response.headers.set('Cache-Control', 'private, no-store');
 			response.headers.set('X-Content-Type-Options', 'nosniff');
 			return response;
@@ -143,7 +144,7 @@ export default {
  * Fetch and log a request
  * @param {Request} request
  */
-async function handleRequest(request, archiveBucket) {
+async function handleRequest(request) {
 	// From path extract from drive order
 	// 并根据 drive order 获取对应的 gd instance
 	let gd;
@@ -240,14 +241,6 @@ async function handleRequest(request, archiveBucket) {
 		return new Response('Not found', { status: 404 });
 	}
 
-	if (path.endsWith('/') && url.searchParams.get('download') === 'zip') {
-		if (request.method !== 'GET' && request.method !== 'HEAD') {
-			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
-		}
-		if (authConfig.enable_password_file_verify) return new Response('Folder ZIP downloads are unavailable with per-folder passwords.', { status: 403 });
-		await gd.initRootType();
-		return folderArchive(request, gd, path, archiveBucket);
-	}
 	await gd.initRootType();
 	if (request.method === 'POST') return apiRequest(request, gd);
 	if (servesIndex) {
@@ -412,20 +405,39 @@ class googleDrive {
 		});
 	}
 
-	async down(file, range, inline, signal) {
-		const url = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&supportsAllDrives=true`;
-		const requestHeaders = {};
-		if (range) requestHeaders.Range = range;
-		if (signal) requestHeaders['Accept-Encoding'] = 'identity';
-		const options = await this.requestOption(requestHeaders);
-		const upstream = await fetch(url, { ...options, signal });
-		const response = new Response(upstream.body, upstream);
+	async down(file, range, inline) {
+		const url = new URL(`https://www.googleapis.com/drive/v3/files/${file.id}`);
+		let fileName = file.name;
+		let response;
+		if (file.mimeType?.startsWith(googleMime) && !inline) {
+			const format = exportsByType.get(file.mimeType.slice(googleMime.length));
+			if (format) {
+				const [mimeType, extension] = format;
+				url.pathname += '/export';
+				url.searchParams.set('mimeType', mimeType);
+				fileName += extension;
+				const upstream = await fetch(url, await this.requestOption());
+				response = new Response(upstream.body, upstream);
+			} else {
+				fileName += '.url';
+				response = new Response('[InternetShortcut]\r\nURL=https://drive.google.com/open?id=' + encodeURIComponent(file.id) + '\r\n');
+			}
+		} else {
+			url.search = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
+			const options = await this.requestOption(range ? { Range: range } : {});
+			const upstream = await fetch(url, options);
+			response = new Response(upstream.body, upstream);
+		}
 		const { headers } = response;
 		if (this.authConfig.enable_cors_file_down) headers.append('Access-Control-Allow-Origin', '*');
+		if (!response.ok) {
+			headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
+			return response;
+		}
 		const mimeType = headers.get('Content-Type')?.split(';')[0].toLowerCase() || '';
 		const canPreview = /^(audio\/|video\/|image\/(png|jpeg|gif|bmp|webp|avif)$|application\/pdf$)/.test(mimeType);
 		const showInline = inline && canPreview;
-		const filename = encodeURIComponent(file.name).replace(/[!'()*]/g, char =>
+		const filename = encodeURIComponent(fileName).replace(/[!'()*]/g, char =>
 			'%' + char.charCodeAt(0).toString(16).toUpperCase()
 		);
 		headers.set('Content-Disposition', `${showInline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}`);
@@ -500,7 +512,7 @@ class googleDrive {
 	}
 
 
-	async _ls(parent, page_token = null, page_index = 0, pageSize = this.authConfig.files_list_page_size) {
+	async _ls(parent, page_token = null, page_index = 0) {
 		// console.log("_ls", parent);
 
 		if (parent == undefined) {
@@ -511,7 +523,7 @@ class googleDrive {
 		params.q = `'${parent}' in parents and trashed = false AND name !='.password'`;
 		params.orderBy = 'folder,name,modifiedTime desc';
 		params.fields = "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
-		params.pageSize = pageSize;
+		params.pageSize = this.authConfig.files_list_page_size;
 
 		if (page_token) {
 			params.pageToken = page_token;
