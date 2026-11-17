@@ -29,7 +29,6 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
 | **Download** | Download a file from its row or preview page. |
 | **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
-| **Copy folder link** | Share the folder page so others can browse it or download its files. |
 | **Save links (.txt)** | Save one direct file URL per line for a mirror or leech bot’s bulk mode. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
@@ -38,9 +37,7 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 
 Open the folder and click **Download files**. Keep the folder page open while it starts the downloads, and allow multiple downloads if prompted. Rin Index goes through every page of the folder and its subfolders. The browser controls when each transfer runs and where it saves each file.
 
-Use **Copy folder link** to share the folder page. Recipients open it in a browser and click **Download files**. Private folders use the index’s existing sign-in settings.
-
-For a mirror or leech bot, click **Save links (.txt)**, send `folder-links.txt` to the bot, and reply to the file with your bot’s bulk command, such as `/leech -b` or `/mirror -b`. The list includes files in subfolders. If direct file links require sign-in, configure the bot to authenticate with Rin Index. [Mirror-Leech-Telegram-Bot bulk download support](https://github.com/anasty17/mirror-leech-telegram-bot#overall)
+For a mirror or leech bot, click **Save links (.txt)** to download `folder-links.txt` directly. Send the file to the bot and reply with your bot’s bulk command, such as `/leech -b` or `/mirror -b`. The list includes files in subfolders. If direct file links require sign-in, configure the bot to authenticate with Rin Index. [Mirror-Leech-Telegram-Bot bulk download support](https://github.com/anasty17/mirror-leech-telegram-bot#overall)
 
 Supported Google Workspace files are exported individually. Other Google Drive formats and shortcuts can be saved as links to the original item. Google Drive may restrict downloading or exporting specific files. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
 
