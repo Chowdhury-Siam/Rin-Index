@@ -214,15 +214,12 @@ button:disabled { cursor: progress; opacity: .62; }
 .panel h2 { margin: 0; font-size: 1.23rem; letter-spacing: -.035em; }
 .panel-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .65rem; }
 .count { flex: none; margin: 0; color: var(--muted); font-size: .86rem; }
-.folder-feedback { display: grid; gap: .5rem; padding: 0 1.4rem .85rem; }
-.folder-feedback p { margin: 0; color: var(--muted); font-size: .87rem; overflow-wrap: anywhere; }
-.folder-link-input {
-	width: 100%;
-	padding: .55rem .65rem;
-	border: 1px solid var(--border);
-	border-radius: .65rem;
-	background: var(--surface);
-	color: var(--ink);
+.download-status {
+	margin: 0;
+	padding: 0 1.4rem .85rem;
+	color: var(--muted);
+	font-size: .87rem;
+	overflow-wrap: anywhere;
 }
 
 .column-labels, .file-row {
