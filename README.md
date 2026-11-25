@@ -30,6 +30,7 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | **Download** | Download a file from its row or preview page. |
 | **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
 | **Save links (.txt)** | Save one direct file URL per line for a mirror or leech bot’s bulk mode. |
+| **Upload** | Sign in as an admin and upload files, with resumable multi-chunk progress, into any open folder. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
 
@@ -40,6 +41,12 @@ Open the folder and click **Download files**. Keep the folder page open while it
 For a mirror or leech bot, click **Save links (.txt)** to download a TXT file named after the folder. For example, **ARC 01** downloads as `ARC 01.txt`. Send the file to the bot and reply with your bot’s bulk command, such as `/leech -b` or `/mirror -b`. The list includes files in subfolders. If direct file links require sign-in, configure the bot to authenticate with Rin Index. [Mirror-Leech-Telegram-Bot bulk download support](https://github.com/anasty17/mirror-leech-telegram-bot#overall)
 
 Supported Google Workspace files are exported individually. Other Google Drive formats and shortcuts can be saved as links to the original item. Google Drive may restrict downloading or exporting specific files. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
+
+### Upload files to a folder
+
+Set the `ADMIN_PASSWORD` repository secret to turn on uploads. On a folder page, an admin then sees an **Upload** button (or an **Admin** sign-in link on a public index) and can pick one or more files from a phone or PC. Files upload directly into the folder that is open, including nested folders, each with its own progress bar and a clear success or error message. The listing refreshes after a successful upload.
+
+Every upload request is checked against the admin credentials on the server before Google Drive is contacted. Public visitors and users with only the browse password can never upload. Uploads use Google Drive’s resumable upload API in 16 MB chunks, so each request stays within Cloudflare Workers Free limits and the Worker never holds a whole file in memory. If an upload is interrupted, the browser asks Google Drive how much it received and resumes from that byte, continuing the same session instead of creating a duplicate file. Uploads create a new Drive file each time and never overwrite existing files.
 
 ## Deploy
 
@@ -54,11 +61,23 @@ Supported Google Workspace files are exported individually. Other Google Drive f
    ```
 
 4. Click **Create** and save the client ID and client secret. Open [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/), click the gear icon, and select **Use your own OAuth credentials**. Enter both values. Keep the flow **Server-side** and the access type **Offline**.
-5. In **Step 1**, paste `https://www.googleapis.com/auth/drive.readonly` into **Input your own scopes**. Click **Authorize APIs**, sign in with the account that can open the folder, and grant access.
+5. In **Step 1**, paste the scope below into **Input your own scopes**. Click **Authorize APIs**, sign in with the account that can open the folder, and grant access. Use the first scope for browsing only, or the second scope if you also enable uploads.
+
+   ```text
+   https://www.googleapis.com/auth/drive.readonly
+   https://www.googleapis.com/auth/drive
+   ```
+
 6. In **Step 2**, click **Exchange authorization code for tokens**. Copy the full **Refresh token** field. Store it with the matching client ID and client secret. See [Google’s OAuth Playground guide](https://developers.google.com/explorer-help/code-samples).
 
 > [!NOTE]
 > Google expires Drive refresh tokens after seven days while an **External** OAuth app is in **Testing**. If you later change the app’s publishing status, generate a fresh token and update the GitHub secret. [Google’s refresh token rules](https://developers.google.com/identity/protocols/oauth2#expiration)
+
+### Give the account write access for uploads
+
+The `drive.readonly` scope can browse and download but not create files. To reauthorize an existing read-only setup for uploads, repeat the Playground steps above with `https://www.googleapis.com/auth/drive` as the scope, then replace the `GOOGLE_REFRESH_TOKEN` secret with the new token. The deploy script accepts either scope and refuses to deploy uploads with a read-only token.
+
+The full `drive` scope is the narrowest scope that works for uploading into folders that already exist. The smaller `drive.file` scope only covers files an app created itself or received through the Google Picker, so it cannot create files inside the indexed folder tree. The Google account must also have edit permission on the destination folder; a share link with viewer access is not enough. [Google Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 
 ### 2. Prepare Cloudflare
 
@@ -93,6 +112,8 @@ If your mirror bot uploads to a fixed folder and sends links like `/0:/file.zip`
 | `INDEX_USERNAME` | `viewer` | Set the username for password-protected browsing. |
 | `INDEX_PUBLIC` | Automatic | The index is public with no password. Set this to `true` to allow public browsing with a password configured. |
 | `PROTECT_FILE_LINK` | `false` | Set to `true` with an index password to require sign-in for direct downloads. |
+| `ADMIN_PASSWORD` | Unset | Set to enable admin uploads. Must be paired with a `GOOGLE_REFRESH_TOKEN` for the `drive` scope. |
+| `ADMIN_USERNAME` | `admin` | Set the username for admin uploads. |
 
 > [!TIP]
 > Direct download URLs work without a password by default. Turn on `PROTECT_FILE_LINK` if you want the index password to cover downloads as well.
@@ -125,6 +146,11 @@ After editing a repository secret, start a fresh run with **Actions → Deploy R
 | **Google Drive could not open DRIVE_ID** | Check the folder ID and whether the Drive API is enabled. If the folder was shared with you, ask the owner to share it directly with the Google account that authorized Rin Index. |
 | **Cloudflare rejects the deployment** | Check the account ID, token permissions, and `workers.dev` subdomain setup. |
 | **Search is missing** | Search is available for My Drive and Shared Drive roots. Use breadcrumbs to browse a selected subfolder. |
+| **Uploads are not configured** | Add the `ADMIN_PASSWORD` repository secret and start a fresh workflow run. |
+| **Uploads need the full Drive scope** | Reauthorize through the OAuth Playground with `https://www.googleapis.com/auth/drive` and update `GOOGLE_REFRESH_TOKEN`, or remove `ADMIN_PASSWORD`. |
+| **This Google account cannot create files in that folder** | The authorizing account needs edit permission on the destination folder. Ask the owner for editor access. |
+| **Admin sign-in failed** | Check the `ADMIN_USERNAME` and `ADMIN_PASSWORD` secrets. On a private index, signing in to browse with the admin pair also shows the Upload button. |
+| **This upload session expired** | Drive sessions last about a week. Start the upload again; a fresh upload creates a new file rather than overwriting. |
 
 ## Credits
 
