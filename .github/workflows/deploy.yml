@@ -38,6 +38,7 @@ jobs:
       - name: Check the Worker and folder downloads
         run: |
           node --check public/assets/js/app.js
+          node --check public/assets/js/upload-engine.js
           node --test
 
       - name: Verify Google Drive access
