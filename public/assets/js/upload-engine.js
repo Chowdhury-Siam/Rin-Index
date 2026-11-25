@@ -663,8 +663,13 @@
 			this.emitBatch(ctx, state);
 		},
 
+		// Opens the resumable session for one file. A file may carry its own
+		// `targetPath` (the index path of the folder it belongs to), which a
+		// folder upload uses to send files to their subfolders; every later
+		// request of the session goes to the same path.
 		async startSession(file, ctx) {
-			const response = await this.fetchImpl(ctx.path + '?upload=start', {
+			const path = typeof file.targetPath === 'string' && file.targetPath ? file.targetPath : ctx.path;
+			const response = await this.fetchImpl(path + '?upload=start', {
 				method: 'POST',
 				headers: Object.assign({ 'Content-Type': 'application/json' }, ctx.getHeaders()),
 				body: JSON.stringify({ name: file.name, size: file.size, type: file.type || 'application/octet-stream' })
@@ -677,11 +682,12 @@
 				if (data && data.restart) error.fatal = true;
 				throw error;
 			}
+			data.path = path;
 			return data;
 		},
 
 		async putChunk(session, ctx, offset, length, body, onProgress, signal) {
-			const url = ctx.path + '?upload=chunk&u=' + encodeURIComponent(session.token) +
+			const url = (session.path || ctx.path) + '?upload=chunk&u=' + encodeURIComponent(session.token) +
 				'&offset=' + offset + '&len=' + length;
 			const init = { method: 'PUT', headers: Object.assign({}, ctx.getHeaders()), body };
 			if (signal) init.signal = signal;
@@ -703,7 +709,7 @@
 		},
 
 		async queryStatus(session, ctx) {
-			const response = await this.fetchImpl(ctx.path + '?upload=status&u=' + encodeURIComponent(session.token), {
+			const response = await this.fetchImpl((session.path || ctx.path) + '?upload=status&u=' + encodeURIComponent(session.token), {
 				method: 'POST',
 				headers: Object.assign({}, ctx.getHeaders())
 			});
@@ -741,7 +747,7 @@
 		// its own after a week.
 		async closeSession(session, ctx) {
 			try {
-				const response = await this.fetchImpl(ctx.path + '?upload=cancel&u=' + encodeURIComponent(session.token), {
+				const response = await this.fetchImpl((session.path || ctx.path) + '?upload=cancel&u=' + encodeURIComponent(session.token), {
 					method: 'POST',
 					headers: Object.assign({}, ctx.getHeaders())
 				});
