@@ -1280,3 +1280,62 @@ test('the speed meter drops in-flight bytes the server did not keep', () => {
 	assert.equal(meter.speed(), 5, 'only the confirmed 10 bytes count');
 	assert.deepEqual(meter.samples.map(sample => sample.b), [0, 10]);
 });
+
+// Folder uploads: a file may name the folder it belongs to.
+test('a file with its own target path is uploaded to that folder', TIMEOUT, async () => {
+	const size = 16 * MIB;
+	const log = {};
+	const targets = [];
+	const engine = new Engine({
+		now: () => 0,
+		sleep: () => Promise.resolve(),
+		fetchImpl: sessionFetch(size, log),
+		transport: async url => {
+			targets.push(url.split('?')[0]);
+			return responseLike(200, { done: true, committed: size });
+		}
+	});
+	const here = fakeFile('Notes.md', size);
+	const nested = Object.assign(fakeFile('Episode 01.mkv', size, 'video/x-matroska'), { targetPath: '/0:/Season%201/' });
+	const events = [];
+	const state = await engine.upload([here, nested], {
+		path: '/0:/', getHeaders: () => ({}), concurrency: 1, onEvent: collecting(events)
+	});
+	assert.equal(state.succeeded, 2);
+	assert.deepEqual(log.starts, ['/0:/?upload=start', '/0:/Season%201/?upload=start']);
+	assert.deepEqual(targets, ['/0:/', '/0:/Season%201/']);
+	assert.deepEqual(events.filter(event => event.type === 'file-done').map(event => event.name), ['Notes.md', 'Episode 01.mkv']);
+});
+
+test('pausing, resuming, and cancelling keep to the file’s own target path', TIMEOUT, async () => {
+	let clock = 0;
+	const events = [];
+	const size = 40 * MIB;
+	const inFlight = deferred();
+	const record = tracker(events);
+	const paused = record.next('file-paused');
+	const log = {};
+	const engine = new Engine({
+		now: () => clock,
+		sleep: () => Promise.resolve(),
+		fetchImpl: sessionFetch(size, log),
+		transport: async (url, init, onProgress) => {
+			clock += 1000;
+			onProgress(4 * MIB);
+			inFlight.resolve();
+			return holdUntilAborted(init.signal);
+		}
+	});
+	const handle = engine.start([Object.assign(fakeFile('Episode 01.mkv', size), { targetPath: '/0:/Season%201/' })], {
+		path: '/0:/', getHeaders: () => ({}), onEvent: record.onEvent
+	});
+	await inFlight.promise;
+	assert.equal(handle.pause(0), true);
+	await paused.promise;
+	await tick();
+	assert.deepEqual(log.status, ['/0:/Season%201/?upload=status&u=tok'], 'the pause is confirmed on the target path');
+	assert.equal(handle.cancel(0), true);
+	const state = await handle.done;
+	assert.equal(state.cancelled, 1);
+	assert.deepEqual(log.cancels, ['/0:/Season%201/?upload=cancel&u=tok'], 'the session is closed on the target path');
+});
