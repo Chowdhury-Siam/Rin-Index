@@ -114,11 +114,13 @@ function html(order, model) {
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="theme-color" content="#0b120f">
+	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f5f3">
+	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b110e">
 	<meta name="robots" content="noindex">
 	<title>${title.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
 	<link rel="icon" href="/assets/rin-mark.png" type="image/png">
 	<link rel="stylesheet" href="/assets/css/rin-index.css">
+	<script>try{var s=localStorage.getItem('rin-theme');var t=s==='light'||s==='dark'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=t;}catch(e){}</script>
 	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
 	<script src="/assets/vendor/markdown-it.min.js" defer></script>
 	<script src="/assets/js/upload-engine.js" defer></script>
@@ -248,8 +250,12 @@ async function handleRequest(request) {
 	}
 
 	path = path.replace(gd.url_path_prefix, '') || '/';
+	const uploadAction = url.searchParams.get('upload');
 	const servesIndex = request.method === 'POST' || path.endsWith('/') || url.searchParams.has('a');
-	if (servesIndex || gd.root.protect_file_link) {
+	// Upload routes enforce the admin pair inside handleUploadRequest before
+	// any Drive request, which is at least as strict as the site password, so
+	// they skip the viewer gate and answer the admin gate directly.
+	if ((servesIndex || gd.root.protect_file_link) && !uploadAction) {
 		const denied = await gd.basicAuthResponse(request);
 		if (denied) return denied;
 	}
@@ -261,9 +267,8 @@ async function handleRequest(request) {
 
 	await gd.initRootType();
 
-	// Admin uploads: ?upload=start|chunk|status|whoami, guarded by the admin
-	// credentials before any Drive request is made.
-	const uploadAction = url.searchParams.get('upload');
+	// Admin uploads: ?upload=start|chunk|status|cancel|whoami, guarded by the
+	// admin credentials before any Drive request is made.
 	if (uploadAction) return handleUploadRequest(request, gd, uploadAction, path);
 
 	if (path.endsWith('/') && url.searchParams.get('download') === 'links') {
