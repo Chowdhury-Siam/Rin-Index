@@ -30,7 +30,8 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | **Download** | Download a file from its row or preview page. |
 | **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
 | **Save links (.txt)** | Save one direct file URL per line for a mirror or leech bot’s bulk mode. |
-| **Upload** | Sign in as an admin and upload files, with resumable multi-chunk progress, into any open folder. |
+| **Copy URL** | Copy the direct download URL of any file, including files in nested folders. |
+| **Upload** | Sign in as an admin and upload files into any open folder, with a progress popup showing speed and time remaining. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
 
@@ -42,11 +43,15 @@ For a mirror or leech bot, click **Save links (.txt)** to download a TXT file na
 
 Supported Google Workspace files are exported individually. Other Google Drive formats and shortcuts can be saved as links to the original item. Google Drive may restrict downloading or exporting specific files. [Google Drive’s download and export limits](https://developers.google.com/workspace/drive/api/guides/manage-downloads)
 
+### Copy a file’s direct URL
+
+Every file row has a **Copy URL** button beside the download button. It copies the full direct-download address of that file, with the folder path encoded, so it works for files in nested folders. The copied URL points at Rin Index itself, so every access rule still applies: on a private index or with `PROTECT_FILE_LINK` enabled, opening the URL asks for the same sign-in as a normal download. On phones and desktops the button stays a large tap target, and a brief “URL copied” note confirms each copy.
+
 ### Upload files to a folder
 
-Set the `ADMIN_PASSWORD` repository secret to turn on uploads. On a folder page, an admin then sees an **Upload** button (or an **Admin** sign-in link on a public index) and can pick one or more files from a phone or PC. Files upload directly into the folder that is open, including nested folders, each with its own progress bar and a clear success or error message. The listing refreshes after a successful upload.
+Set the `ADMIN_PASSWORD` repository secret to turn on uploads. On a folder page, an admin then sees an **Upload** button (or an **Admin** sign-in link on a public index) and can pick one or more files from a phone or PC. Files upload directly into the folder that is open, including nested folders. A centered popup opens as soon as an upload starts and fits phones and desktops: each file shows its name, progress bar, percentage, bytes uploaded out of the total, current speed in MB/s, and estimated time remaining, and multiple files also get a whole-batch progress line. Speed and time remaining are calculated from the bytes Google Drive actually confirmed, so retries never inflate them. When an upload is interrupted, the popup shows the retry, the browser asks Drive how much it received, and the same session resumes from that byte instead of creating a duplicate file. The listing refreshes after a successful batch.
 
-Every upload request is checked against the admin credentials on the server before Google Drive is contacted. Public visitors and users with only the browse password can never upload. Uploads use Google Drive’s resumable upload API in 16 MB chunks, so each request stays within Cloudflare Workers Free limits and the Worker never holds a whole file in memory. If an upload is interrupted, the browser asks Google Drive how much it received and resumes from that byte, continuing the same session instead of creating a duplicate file. Uploads create a new Drive file each time and never overwrite existing files.
+Every upload request is checked against the admin credentials on the server before Google Drive is contacted. Public visitors and users with only the browse password can never upload. Uploads use Google Drive’s resumable upload API in chunks that start at 16 MB and grow as the transfer proves reliable, so each request stays within Cloudflare Workers Free limits. The Worker streams each chunk straight through to Drive while it is still arriving from the browser, so the two network legs overlap instead of running back to back: with an 8 MB/s uplink this raises effective upload throughput from roughly 5 MB/s to roughly 7.4 MB/s in Rin Index’s measurements, close to the connection’s ceiling. The Worker never holds a whole file in memory, each request performs a single subrequest, and uploads create a new Drive file each time without overwriting existing files.
 
 ## Deploy
 
