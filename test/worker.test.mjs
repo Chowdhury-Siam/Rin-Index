@@ -286,6 +286,7 @@ test('uploads are refused without admin credentials', async t => {
 	assert.equal(wrong.status, 401);
 
 	assert.equal((await request('/0:/?upload=whoami')).status, 401);
+	assert.equal((await request('/0:/?upload=cancel&u=anything', { method: 'POST' })).status, 401);
 	assert.equal(sessions, 0);
 });
 
@@ -326,10 +327,12 @@ test('an admin starts a resumable upload into a nested folder and streams chunks
 			assert.equal(typeof options.body?.getReader, 'function', 'chunks must stream through as a ReadableStream');
 			const range = options.headers['Content-Range'];
 			if (range === 'bytes 0-4/11') {
+				assert.equal(options.headers['Content-Length'], '5', 'the upstream PUT declares its exact length');
 				assert.equal(await new Response(options.body).text(), 'Hello');
 				return new Response(null, { status: 308, headers: { Range: 'bytes=0-4' } });
 			}
 			assert.equal(range, 'bytes 5-10/11');
+			assert.equal(options.headers['Content-Length'], '6', 'the upstream PUT declares its exact length');
 			assert.equal(await new Response(options.body).text(), ' World');
 			return Response.json({ id: 'new-file', name: 'Episode 01.mkv', size: '11' }, { status: 201 });
 		}
@@ -350,7 +353,8 @@ test('an admin starts a resumable upload into a nested folder and streams chunks
 	const startBody = await started.text();
 	const session = JSON.parse(startBody);
 	assert.equal(session.chunk_size, 16 * 1024 * 1024);
-	assert.equal(session.max_chunk, 96 * 1024 * 1024);
+	assert.equal(session.max_chunk, 95 * 1024 * 1024);
+	assert.ok(session.max_chunk < 100_000_000, 'the chunk ceiling must stay under Cloudflare Free\'s 100 MB request-body limit');
 	assert.equal(session.total, 11);
 	assert.match(session.token, /^[A-Za-z0-9_-]+$/);
 	assert.ok(!startBody.includes(SESSION_URL), 'session URL must stay sealed');
@@ -437,6 +441,138 @@ test('an interrupted upload resumes from the committed offset without a duplicat
 	assert.equal(sessions, 1, 'retrying must reuse the session, not create a second file');
 });
 
+test('cancelling an upload closes the Drive session and later chunks are refused', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-cancel');
+	const upstream = [];
+	let cancelled = false;
+	t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'POST') {
+			return new Response(null, { status: 200, headers: { Location: SESSION_URL } });
+		}
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'DELETE') {
+			upstream.push('delete');
+			assert.equal(String(input), SESSION_URL, 'the DELETE targets the sealed session URL');
+			cancelled = true;
+			return new Response(null, { status: 499 });
+		}
+		if (url.pathname === '/upload/drive/v3/files') {
+			// Drive answers 499 to every PUT on a cancelled session.
+			if (cancelled) return new Response(null, { status: 499 });
+			return new Response(null, { status: 308, headers: { Range: 'bytes=0-4' } });
+		}
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const started = await request('/0:/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'Movie.mp4', size: 10, type: 'video/mp4' })
+	});
+	const session = await started.json();
+	const token = encodeURIComponent(session.token);
+	const admin = { Authorization: adminAuth };
+
+	const chunk = await request('/0:/?upload=chunk&u=' + token + '&offset=0&len=5', {
+		method: 'PUT',
+		headers: admin,
+		body: 'Hello'
+	});
+	assert.deepEqual(await chunk.json(), { done: false, committed: 5 });
+
+	const closed = await request('/0:/?upload=cancel&u=' + token, { method: 'POST', headers: admin });
+	assert.equal(closed.status, 200);
+	const closedBody = await closed.text();
+	assert.deepEqual(JSON.parse(closedBody), { cancelled: true });
+	assert.ok(!closedBody.includes(SESSION_URL), 'the session URL stays sealed');
+	assert.deepEqual(upstream, ['delete'], 'the session was closed exactly once');
+
+	const lateChunk = await request('/0:/?upload=chunk&u=' + token + '&offset=5&len=5', {
+		method: 'PUT',
+		headers: admin,
+		body: 'World'
+	});
+	assert.equal(lateChunk.status, 410);
+	assert.equal((await lateChunk.json()).restart, true, 'a cancelled session cannot be continued');
+
+	const lateStatus = await request('/0:/?upload=status&u=' + token, { method: 'POST', headers: admin });
+	assert.equal(lateStatus.status, 410);
+
+	const unknown = await request('/0:/?upload=cancel&u=not-a-token', { method: 'POST', headers: admin });
+	assert.equal(unknown.status, 404);
+	const wrongMethod = await request('/0:/?upload=cancel&u=' + token, { method: 'GET', headers: admin });
+	assert.equal(wrongMethod.status, 405);
+	assert.equal(upstream.length, 1, 'a bad method or unknown token closes nothing');
+});
+
+test('cancel maps every Drive answer without leaking the session', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-cancel-map');
+	let sessions = 0;
+	const deleteAnswers = new Map();
+	t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'POST') {
+			sessions++;
+			return new Response(null, { status: 200, headers: { Location: SESSION_URL + '&case=' + sessions } });
+		}
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'DELETE') {
+			const id = url.searchParams.get('case');
+			const answer = deleteAnswers.get(id);
+			if (answer === 'throw') throw new TypeError('network unreachable');
+			return new Response(null, { status: answer });
+		}
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const start = async () => {
+		const response = await request('/0:/?upload=start', {
+			method: 'POST',
+			headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'a.txt', size: 5, type: 'text/plain' })
+		});
+		return encodeURIComponent((await response.json()).token);
+	};
+	const cancel = token => request('/0:/?upload=cancel&u=' + token, {
+		method: 'POST',
+		headers: { Authorization: adminAuth }
+	});
+
+	// Each session maps to one Drive answer.
+	const expired = await start();
+	deleteAnswers.set('1', 404);
+	assert.deepEqual(await (await cancel(expired)).json(), { cancelled: true, expired: true });
+
+	const gone = await start();
+	deleteAnswers.set('2', 410);
+	assert.deepEqual(await (await cancel(gone)).json(), { cancelled: true, expired: true });
+
+	const ok = await start();
+	deleteAnswers.set('3', 200);
+	assert.deepEqual(await (await cancel(ok)).json(), { cancelled: true });
+
+	const broken = await start();
+	deleteAnswers.set('4', 500);
+	const brokenResponse = await cancel(broken);
+	assert.equal(brokenResponse.status, 502);
+	const brokenBody = await brokenResponse.json();
+	assert.equal(brokenBody.cancelled, false);
+	assert.equal(brokenBody.retry, true);
+
+	const unreachable = await start();
+	deleteAnswers.set('5', 'throw');
+	const unreachableResponse = await cancel(unreachable);
+	assert.equal(unreachableResponse.status, 502);
+	assert.equal((await unreachableResponse.json()).cancelled, false);
+
+	assert.equal(sessions, 5);
+});
+
 test('chunk requests validate the declared length', async t => {
 	const { default: worker } = await import('../worker/worker-beta.js?uploads-len');
 	let upstreamChunks = 0;
@@ -468,10 +604,60 @@ test('chunk requests validate the declared length', async t => {
 	assert.equal((await request(chunkUrl(0, 'abc'), put('Hello'))).status, 400);
 	assert.equal((await request(chunkUrl(0, 500 * 1024 * 1024), put('Hello'))).status, 400);
 	assert.equal((await request(chunkUrl(10, 5), put('Hello'))).status, 400);
-	const mismatch = await request(chunkUrl(0, 5), put('abc'));
-	assert.equal(mismatch.status, 502);
-	assert.equal((await mismatch.json()).retry, true);
-	assert.equal(upstreamChunks, 1, 'only the length-consistent chunk reaches Google');
+	// A Content-Length header that disagrees with the declared chunk length is
+	// refused before anything is sent to Drive; Cloudflare always sets the
+	// header for a body of known size.
+	const mismatch = await request(chunkUrl(0, 5), {
+		method: 'PUT',
+		headers: { Authorization: adminAuth, 'Content-Length': '3' },
+		body: 'abc'
+	});
+	assert.equal(mismatch.status, 400);
+	assert.match((await mismatch.json()).error, /does not match its body/);
+	// Without the header (a proxied chunked body) the length is Drive's to
+	// check: it answers 400 and the browser sees a retryable error.
+	const chunked = await request(chunkUrl(0, 5), put('abc'));
+	assert.equal(chunked.status, 502);
+	assert.equal((await chunked.json()).retry, true);
+	assert.equal(upstreamChunks, 1, 'only the request without a declared length reaches Google');
+});
+
+test('upload routes answer the admin gate instead of the site password', async t => {
+	// On a password-protected index the admin sign-in check carries only the
+	// admin pair, so the site viewer gate must not challenge it; the upload
+	// actions themselves are admin-gated inside the handler.
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-gate-viewer');
+	let sessions = 0;
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files') sessions++;
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const config = { ...env, INDEX_PASSWORD: 'test:password', ADMIN_PASSWORD: 'admin-pass' };
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), config);
+	const start = {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1, type: 'text/plain' })
+	};
+
+	const admin = await request('/0:/?upload=whoami', { headers: { Authorization: adminAuth } });
+	assert.equal(admin.status, 200);
+	assert.deepEqual(await admin.json(), { admin: true });
+
+	const anonymous = await request('/0:/?upload=start', start);
+	assert.equal(anonymous.status, 401);
+
+	const viewer = await request('/0:/?upload=start', { ...start, headers: { ...start.headers, Authorization: auth } });
+	assert.equal(viewer.status, 401);
+	assert.equal(sessions, 0);
+
+	// The site password still protects everything else.
+	const page = await request('/0:/', { headers: { Authorization: adminAuth } });
+	assert.equal(page.status, 200);
 });
 
 test('upload destinations outside the index root are refused', async t => {
