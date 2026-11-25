@@ -2,10 +2,16 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readDriveRoot, readSettings, refreshGoogleToken } from './settings.mjs';
-import { handleUploadRequest, isAdminRequest } from './uploads.mjs';
+import { adminDenied, handleAdminSession, handleUploadRequest, isAdminRequest } from './uploads.mjs';
+import { handleManageRequest, handleStorageRequest } from './manage.mjs';
 
 const googleMime = 'application/vnd.google-apps.';
 const officeMime = 'application/vnd.openxmlformats-officedocument.';
+// How long the cached folder lookups and listings stay valid (see
+// googleDrive.expireCaches). Changes made through the index drop them at
+// once; this bounds how long a change made in Google Drive itself goes
+// unnoticed by a Worker instance.
+const CACHE_TTL = 30 * 1000;
 const exportsByType = new Map([
 	['document', [officeMime + 'wordprocessingml.document', '.docx']],
 	['spreadsheet', [officeMime + 'spreadsheetml.sheet', '.xlsx']],
@@ -114,13 +120,13 @@ function html(order, model) {
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f5f3">
-	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b110e">
+	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f3f3">
+	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c090b">
 	<meta name="robots" content="noindex">
 	<title>${title.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
 	<link rel="icon" href="/assets/rin-mark.png" type="image/png">
 	<link rel="stylesheet" href="/assets/css/rin-index.css">
-	<script>try{var s=localStorage.getItem('rin-theme');var t=s==='light'||s==='dark'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=t;}catch(e){}</script>
+	<script>try{var s=localStorage.getItem('rin-theme');document.documentElement.dataset.theme=s==='light'?'light':'dark';}catch(e){}</script>
 	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
 	<script src="/assets/vendor/markdown-it.min.js" defer></script>
 	<script src="/assets/js/upload-engine.js" defer></script>
@@ -251,11 +257,16 @@ async function handleRequest(request) {
 
 	path = path.replace(gd.url_path_prefix, '') || '/';
 	const uploadAction = url.searchParams.get('upload');
+	const manageAction = url.searchParams.get('manage');
 	const servesIndex = request.method === 'POST' || path.endsWith('/') || url.searchParams.has('a');
-	// Upload routes enforce the admin pair inside handleUploadRequest before
-	// any Drive request, which is at least as strict as the site password, so
-	// they skip the viewer gate and answer the admin gate directly.
-	if ((servesIndex || gd.root.protect_file_link) && !uploadAction) {
+	// Upload routes, file management, signing in, and the storage summary
+	// enforce the admin pair inside their handlers before any Drive request,
+	// which is at least as strict as the site password, so they skip the
+	// viewer gate and answer the admin gate directly. Signing out only clears
+	// the caller's cookie and keeps the viewer gate.
+	const gated = Boolean(manageAction) && manageAction !== 'logout';
+	const changesFiles = Boolean(uploadAction) || gated;
+	if ((servesIndex || gd.root.protect_file_link) && !changesFiles) {
 		const denied = await gd.basicAuthResponse(request);
 		if (denied) return denied;
 	}
@@ -265,11 +276,24 @@ async function handleRequest(request) {
 		return new Response('Not found', { status: 404 });
 	}
 
+	// A request that may change files is refused here, before Google Drive is
+	// contacted at all; each handler checks the same gate again.
+	if (changesFiles) {
+		const denied = await adminDenied(request, authConfig.settings, manageAction ? 'manage' : 'upload');
+		if (denied) return denied;
+	}
+
+	// Signing in and out touches no file and needs no Drive request.
+	if (manageAction === 'login' || manageAction === 'logout') return handleAdminSession(request, authConfig.settings, manageAction);
+
 	await gd.initRootType();
 
 	// Admin uploads: ?upload=start|chunk|status|cancel|whoami, guarded by the
 	// admin credentials before any Drive request is made.
 	if (uploadAction) return handleUploadRequest(request, gd, uploadAction, path);
+	// File management and the storage summary: ?manage=mkdir|rename|move|delete|storage
+	if (manageAction === 'storage') return handleStorageRequest(request, gd);
+	if (manageAction) return handleManageRequest(request, gd, manageAction, path);
 
 	if (path.endsWith('/') && url.searchParams.get('download') === 'links') {
 		if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -305,7 +329,9 @@ async function apiRequest(request, gd) {
 	if (path.substr(-1) == '/') {
 		let form = await request.formData();
 		// This can increase the speed when listing directories for the first time. The disadvantage is that if the password verification fails, the overhead of listing directories will still be incurred
-		let deferred_list_result = gd.list(path, form.get('page_token'), Number(form.get('page_index')));
+		// An admin's listing also says what may be done with each item.
+		const manage = await isAdminRequest(request, authConfig.settings);
+		let deferred_list_result = gd.list(path, form.get('page_token'), Number(form.get('page_index')), manage);
 
 		// check .password file, if `enable_password_file_verify` is true
 		if (authConfig['enable_password_file_verify']) {
@@ -336,7 +362,7 @@ async function handleSearch(request, gd) {
 	};
 	let form = await request.formData();
 	let search_result = await
-	gd.search(form.get('q') || '', form.get('page_token'), Number(form.get('page_index')));
+		gd.search(form.get('q') || '', form.get('page_token'), Number(form.get('page_index')), await isAdminRequest(request, authConfig.settings));
 	return new Response(JSON.stringify(search_result), option);
 }
 
@@ -380,10 +406,36 @@ class googleDrive {
 		this.id_path_cache = Object.create(null);
 		this.id_path_cache[this.root['id']] = '/';
 		this.paths["/"] = this.root['id'];
+		// When the cached lookups were last dropped.
+		this.cachedAt = Date.now();
 		/*if (this.root['pass'] != "") {
 		  this.passwords['/'] = this.root['pass'];
 		}*/
 		// this.init();
+	}
+
+	/**
+	 * Forgets every cached folder lookup, listing, password, and storage
+	 * summary. Called after the index changed through an upload or a
+	 * management action, so the next view reads the folder afresh.
+	 */
+	invalidate() {
+		this.paths = { '/': this.root.id };
+		this.id_path_cache = Object.create(null);
+		this.id_path_cache[this.root.id] = '/';
+		if (this.rootFolderId) this.id_path_cache[this.rootFolderId] = '/';
+		this.files = {};
+		this.path_children_cache = {};
+		this.passwords = {};
+		this.storageCache = null;
+		this.cachedAt = Date.now();
+	}
+
+	/**
+	 * Drops the caches once they are older than CACHE_TTL.
+	 */
+	expireCaches() {
+		if (Date.now() - this.cachedAt > CACHE_TTL) this.invalidate();
 	}
 
 	/**
@@ -493,8 +545,9 @@ class googleDrive {
 				const bytes = Uint8Array.from(atob(match[1]), char => char.charCodeAt(0));
 				if (new TextDecoder().decode(bytes) === `${user}:${pass}`) return null;
 			} catch {}
-			if (await isAdminRequest(request, authConfig.settings)) return null;
 		}
+		// An admin, signed in with the pair or holding a session, may browse too.
+		if (await isAdminRequest(request, authConfig.settings)) return null;
 		return new Response('Unauthorized', {
 			headers: { 'WWW-Authenticate': 'Basic realm="Drive Index", charset="UTF-8"' },
 			status: 401
@@ -540,6 +593,7 @@ class googleDrive {
 	}
 
 	async file(path) {
+		this.expireCaches();
 		if (typeof this.files[path] == 'undefined') {
 			this.files[path] = await this._file(path);
 		}
@@ -569,17 +623,22 @@ class googleDrive {
 	}
 
 	// Cache through reqeust cache
-	async list(path, page_token = null, page_index = 0) {
+	async list(path, page_token = null, page_index = 0, manage = false) {
+		this.expireCaches();
 		if (this.path_children_cache == undefined) {
 			// { <path> :[ {nextPageToken:'',data:{}}, {nextPageToken:'',data:{}} ...], ...}
 			this.path_children_cache = {};
 		}
 
-		if (this.path_children_cache[path] &&
-			this.path_children_cache[path][page_index] &&
-			this.path_children_cache[path][page_index].data
+		// An admin's listing carries extra fields, so it is kept apart from
+		// the listing everyone else is served.
+		const cachePath = manage ? path + '?manage' : path;
+
+		if (this.path_children_cache[cachePath] &&
+			this.path_children_cache[cachePath][page_index] &&
+			this.path_children_cache[cachePath][page_index].data
 		) {
-			let child_obj = this.path_children_cache[path][page_index];
+			let child_obj = this.path_children_cache[cachePath][page_index];
 			return {
 				nextPageToken: child_obj.nextPageToken || null,
 				curPageIndex: page_index,
@@ -589,14 +648,14 @@ class googleDrive {
 
 		let id = await this.findPathId(path);
 		if (!id) return { nextPageToken: null, curPageIndex: page_index, data: { files: [] } };
-		let result = await this._ls(id, page_token, page_index);
+		let result = await this._ls(id, page_token, page_index, manage);
 		let data = result.data;
 		// Cache multiple pages
 		if (result.nextPageToken && data.files) {
-			if (!Array.isArray(this.path_children_cache[path])) {
-				this.path_children_cache[path] = []
+			if (!Array.isArray(this.path_children_cache[cachePath])) {
+				this.path_children_cache[cachePath] = []
 			}
-			this.path_children_cache[path][Number(result.curPageIndex)] = {
+			this.path_children_cache[cachePath][Number(result.curPageIndex)] = {
 				nextPageToken: result.nextPageToken,
 				data: data
 			};
@@ -606,7 +665,7 @@ class googleDrive {
 	}
 
 
-	async _ls(parent, page_token = null, page_index = 0) {
+	async _ls(parent, page_token = null, page_index = 0, manage = false) {
 		// console.log("_ls", parent);
 
 		if (parent == undefined) {
@@ -616,7 +675,10 @@ class googleDrive {
 		const params = this.fileListParams();
 		params.q = `'${parent}' in parents and trashed = false AND name !='.password'`;
 		params.orderBy = 'folder,name,modifiedTime desc';
-		params.fields = "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
+		// Only an admin's listing asks what may be done with each item.
+		params.fields = manage
+			? "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload,canRename,canTrash,canDelete,canMoveItemWithinDrive))"
+			: "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
 		params.pageSize = this.authConfig.files_list_page_size;
 
 		if (page_token) {
@@ -650,6 +712,7 @@ class googleDrive {
 	}
 
 	async password(path) {
+		this.expireCaches();
 		if (this.passwords[path] !== undefined) {
 			return this.passwords[path];
 		}
@@ -674,7 +737,7 @@ class googleDrive {
 	 * search for
 	 * @returns {Promise<{data: null, nextPageToken: null, curPageIndex: number}>}
 	 */
-	async search(origin_keyword, page_token = null, page_index = 0) {
+	async search(origin_keyword, page_token = null, page_index = 0, manage = false) {
 		const types = CONSTS.gd_root_type;
 		const is_user_drive = this.root_type === types.user_drive;
 		const is_share_drive = this.root_type === types.share_drive;
@@ -712,7 +775,9 @@ class googleDrive {
 			params.pageToken = page_token;
 		}
 		params.q = `trashed = false AND name !='.password' AND (${name_search_str})`;
-		params.fields = "nextPageToken, files(id, name, mimeType, size , modifiedTime)";
+		params.fields = manage
+			? "nextPageToken, files(id, name, mimeType, size , modifiedTime, capabilities(canRename,canTrash,canDelete,canMoveItemWithinDrive))"
+			: "nextPageToken, files(id, name, mimeType, size , modifiedTime)";
 		params.pageSize = this.authConfig.search_result_list_page_size;
 		// params.orderBy = 'folder,name,modifiedTime desc';
 
@@ -786,6 +851,7 @@ class googleDrive {
 	 * @returns {Promise<string>} [Note] If the item represented by this id is not in the target gd disk, then this method will return an empty string ""
 	 */
 	async findPathById(child_id) {
+		this.expireCaches();
 		if (this.id_path_cache[child_id]) {
 			return this.id_path_cache[child_id];
 		}
@@ -827,6 +893,7 @@ class googleDrive {
 	}
 
 	async findPathId(path) {
+		this.expireCaches();
 		let c_path = '/';
 		let c_id = this.paths[c_path];
 
