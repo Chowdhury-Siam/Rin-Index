@@ -2,11 +2,14 @@
  * Admin-only resumable uploads to Google Drive, sized for Cloudflare Workers Free.
  *
  * Protocol: the browser starts a resumable session for the open folder, then
- * PUTs one chunk per request. Each Worker request performs a single upstream
- * subrequest, and chunks stay far below the Free plan's ~100 MB request-body
- * ceiling, so only one chunk is ever held in Worker memory. Chunks always
- * target one resumable session, so an interrupted upload resumes at Google's
- * last committed byte instead of creating a duplicate file.
+ * PUTs one chunk per request. Chunk bodies are streamed straight through to
+ * the Drive session while they are still arriving from the browser, so the
+ * browser→Worker and Worker→Drive legs overlap instead of running back to
+ * back. Chunks stay far below the Free plan's ~100 MB request-body ceiling,
+ * the Worker never buffers a whole chunk in memory, and each request performs
+ * a single upstream subrequest. Chunks always target one resumable session,
+ * so an interrupted upload resumes at Google's last committed byte instead of
+ * creating a duplicate file.
  *
  * The Drive session URL is sealed with AES-GCM (key derived from
  * GOOGLE_CLIENT_SECRET) into an opaque token. Raw session URLs, OAuth tokens,
@@ -15,9 +18,13 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// 16 MiB: a multiple of Drive's 256 KiB chunk unit, comfortably below the
-// Workers Free request-body limit, and small enough to bound isolate memory.
+// Initial chunk advertised to clients: a multiple of Drive's 256 KiB chunk
+// unit, comfortably below the Workers Free request-body limit. Clients grow
+// the chunk adaptively (bounded by max_chunk) as the transfer proves reliable.
 const CHUNK_SIZE = 16 * 1024 * 1024;
+// Hard server-side ceiling for one chunk, just under the Workers Free
+// request-body cap. The browser's own adaptive cap stays well below this.
+const MAX_CHUNK = 96 * 1024 * 1024;
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const DRIVE_SESSION_ORIGIN = 'https://www.googleapis.com';
 
@@ -181,7 +188,7 @@ async function uploadStart(request, gd, path) {
 		return json({ error: 'Google Drive did not return an upload session.' }, 502);
 	}
 	const token = await sealSession({ u: location, s: size }, settings.GOOGLE_CLIENT_SECRET);
-	return json({ token, chunk_size: CHUNK_SIZE, total: size });
+	return json({ token, chunk_size: CHUNK_SIZE, max_chunk: MAX_CHUNK, total: size });
 }
 
 async function uploadChunk(request, gd) {
@@ -190,36 +197,34 @@ async function uploadChunk(request, gd) {
 	const session = await openSession(url.searchParams.get('u') || '', gd.authConfig.settings.GOOGLE_CLIENT_SECRET);
 	if (!session) return json({ error: 'This upload is no longer known. Start it again.', restart: true }, 404);
 	const offset = Number(url.searchParams.get('offset'));
+	const length = Number(url.searchParams.get('len'));
 	const total = session.s;
 	if (!Number.isInteger(offset) || offset < 0 || offset > total) {
 		return json({ error: 'Invalid chunk offset.' }, 400);
 	}
-
-	// One chunk (at most CHUNK_SIZE) is buffered, never the whole file, and
-	// each request makes exactly one upstream subrequest.
-	let body;
-	try {
-		body = await request.arrayBuffer();
-	} catch {
-		return json({ error: 'The chunk did not arrive completely. Retry to resume.', retry: true }, 502);
+	if (!Number.isInteger(length) || length < 0 || length > MAX_CHUNK) {
+		return json({ error: 'Invalid chunk size.' }, 400);
 	}
-	const length = body.byteLength;
 	if (length === 0 && total > 0) {
 		return json({ error: 'Send the chunk bytes, or check the upload status.' }, 400);
-	}
-	if (length > CHUNK_SIZE) {
-		return json({ error: 'The chunk exceeds the supported size.' }, 413);
 	}
 	if (offset + length > total) {
 		return json({ error: 'The chunk would exceed the file size.' }, 400);
 	}
+
+	// Stream the chunk straight through to the Drive session: the upstream
+	// PUT starts while the request body is still arriving, so the two network
+	// legs overlap. Drive accepts chunked transfer encoding for resumable
+	// uploads, so the declared length travels in the Content-Range header and
+	// Google validates the bytes it actually receives. Each request performs
+	// exactly one upstream subrequest, and no full chunk is ever buffered.
 	const contentRange = total === 0 ? 'bytes */0' : `bytes ${offset}-${offset + length - 1}/${total}`;
 	let response;
 	try {
 		response = await fetch(session.u, {
 			method: 'PUT',
 			headers: { 'Content-Range': contentRange },
-			body
+			body: request.body
 		});
 	} catch {
 		return json({ error: 'The chunk could not reach Google Drive. Retry to resume.', retry: true }, 502);
