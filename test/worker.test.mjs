@@ -323,6 +323,7 @@ test('an admin starts a resumable upload into a nested folder and streams chunks
 		if (url.pathname === '/upload/drive/v3/files') {
 			assert.equal(url.searchParams.get('upload_id'), 'sess-1');
 			assert.equal(options.method, 'PUT');
+			assert.equal(typeof options.body?.getReader, 'function', 'chunks must stream through as a ReadableStream');
 			const range = options.headers['Content-Range'];
 			if (range === 'bytes 0-4/11') {
 				assert.equal(await new Response(options.body).text(), 'Hello');
@@ -349,13 +350,14 @@ test('an admin starts a resumable upload into a nested folder and streams chunks
 	const startBody = await started.text();
 	const session = JSON.parse(startBody);
 	assert.equal(session.chunk_size, 16 * 1024 * 1024);
+	assert.equal(session.max_chunk, 96 * 1024 * 1024);
 	assert.equal(session.total, 11);
 	assert.match(session.token, /^[A-Za-z0-9_-]+$/);
 	assert.ok(!startBody.includes(SESSION_URL), 'session URL must stay sealed');
 	assert.ok(!startBody.includes('test-access'), 'access token must not leak');
 	assert.ok(!startBody.includes('admin-pass'), 'admin password must not leak');
 
-	const first = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=0', {
+	const first = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=0&len=5', {
 		method: 'PUT',
 		headers: { Authorization: adminAuth },
 		body: 'Hello'
@@ -363,7 +365,7 @@ test('an admin starts a resumable upload into a nested folder and streams chunks
 	assert.equal(first.status, 200);
 	assert.deepEqual(await first.json(), { done: false, committed: 5 });
 
-	const second = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=5', {
+	const second = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=5&len=6', {
 		method: 'PUT',
 		headers: { Authorization: adminAuth },
 		body: ' World'
@@ -412,13 +414,13 @@ test('an interrupted upload resumes from the committed offset without a duplicat
 		body: JSON.stringify({ name: 'Movie.mp4', size: total, type: 'video/mp4' })
 	});
 	const session = await started.json();
-	const chunkUrl = offset => '/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=' + offset;
+	const chunkUrl = (offset, len) => '/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=' + offset + '&len=' + len;
 	const auth = { Authorization: adminAuth };
 
-	const first = await request(chunkUrl(0), { method: 'PUT', headers: auth, body: 'a'.repeat(1024 * 1024) });
+	const first = await request(chunkUrl(0, 1024 * 1024), { method: 'PUT', headers: auth, body: 'a'.repeat(1024 * 1024) });
 	assert.deepEqual(await first.json(), { done: false, committed: 1024 * 1024 });
 
-	const failed = await request(chunkUrl(1024 * 1024), { method: 'PUT', headers: auth, body: 'b'.repeat(1024 * 1024) });
+	const failed = await request(chunkUrl(1024 * 1024, 1024 * 1024), { method: 'PUT', headers: auth, body: 'b'.repeat(1024 * 1024) });
 	assert.equal(failed.status, 502);
 	assert.equal((await failed.json()).retry, true);
 
@@ -429,10 +431,47 @@ test('an interrupted upload resumes from the committed offset without a duplicat
 	assert.equal(status.status, 200);
 	assert.deepEqual(await status.json(), { done: false, committed: 1024 * 1024 });
 
-	const rest = await request(chunkUrl(1024 * 1024), { method: 'PUT', headers: auth, body: 'c'.repeat(2 * 1024 * 1024) });
+	const rest = await request(chunkUrl(1024 * 1024, 2 * 1024 * 1024), { method: 'PUT', headers: auth, body: 'c'.repeat(2 * 1024 * 1024) });
 	assert.equal((await rest.json()).done, true);
 
 	assert.equal(sessions, 1, 'retrying must reuse the session, not create a second file');
+});
+
+test('chunk requests validate the declared length', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-len');
+	let upstreamChunks = 0;
+	t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'POST') {
+			return new Response(null, { status: 200, headers: { Location: SESSION_URL } });
+		}
+		if (url.pathname === '/upload/drive/v3/files') {
+			upstreamChunks++;
+			// Google rejects a body shorter than the declared Content-Range.
+			return new Response(null, { status: 400 });
+		}
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const started = await request('/0:/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 11, type: 'text/plain' })
+	});
+	const session = await started.json();
+	const chunkUrl = (offset, len) => '/0:/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=' + offset + '&len=' + len;
+	const put = body => ({ method: 'PUT', headers: { Authorization: adminAuth }, body });
+
+	assert.equal((await request(chunkUrl(0, 'abc'), put('Hello'))).status, 400);
+	assert.equal((await request(chunkUrl(0, 500 * 1024 * 1024), put('Hello'))).status, 400);
+	assert.equal((await request(chunkUrl(10, 5), put('Hello'))).status, 400);
+	const mismatch = await request(chunkUrl(0, 5), put('abc'));
+	assert.equal(mismatch.status, 502);
+	assert.equal((await mismatch.json()).retry, true);
+	assert.equal(upstreamChunks, 1, 'only the length-consistent chunk reaches Google');
 });
 
 test('upload destinations outside the index root are refused', async t => {
