@@ -80,39 +80,152 @@ async function safeEqual(a, b) {
 	return diff === 0;
 }
 
-/** True when the request carries the admin basic-auth pair. */
+// The page's own requests name themselves, so an expired admin session can be
+// reported to its sign-in dialog instead of opening the browser's login prompt.
+const CLIENT_HEADER = 'X-Requested-With';
+
+// Admin session --------------------------------------------------------------
+// A successful sign-in also sets a session cookie, so an administrator stays
+// signed in while moving between folders. The cookie holds an expiry and an
+// HMAC of it under a key derived from the admin pair, never the password
+// itself: scripts on the page cannot read it, and changing the pair ends
+// every session at once.
+const SESSION_COOKIE = 'rin_admin_session';
+const SESSION_TTL = 8 * 60 * 60 * 1000;
+const sessionKeys = new WeakMap();
+
+function base64Url(bytes) {
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+}
+
+function base64UrlBytes(text) {
+	const normalized = text.replaceAll('-', '+').replaceAll('_', '/');
+	const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
+	return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+function sessionKey(settings) {
+	if (!sessionKeys.has(settings)) {
+		const material = encoder.encode(['rin-index-session', settings.ADMIN_USERNAME, settings.ADMIN_PASSWORD].join('\0'));
+		sessionKeys.set(settings, crypto.subtle.digest('SHA-256', material)
+			.then(digest => crypto.subtle.importKey('raw', digest, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])));
+	}
+	return sessionKeys.get(settings);
+}
+
+async function sessionToken(settings, expires) {
+	const signature = new Uint8Array(await crypto.subtle.sign('HMAC', await sessionKey(settings), encoder.encode('rin-session:' + expires)));
+	return expires + '.' + base64Url(signature);
+}
+
+/** True when the request carries a session cookie that is current and genuinely signed. */
+async function hasSession(request, settings) {
+	const cookies = request.headers.get('Cookie') || '';
+	let token = '';
+	for (const part of cookies.split(';')) {
+		const separator = part.indexOf('=');
+		if (part.slice(0, separator).trim() === SESSION_COOKIE) token = part.slice(separator + 1).trim();
+	}
+	const match = /^(\d{1,15})\.([A-Za-z0-9_-]{43})$/.exec(token);
+	if (!match) return false;
+	const expires = Number(match[1]);
+	const now = Date.now();
+	if (expires <= now || expires > now + SESSION_TTL) return false;
+	return crypto.subtle.verify('HMAC', await sessionKey(settings), base64UrlBytes(match[2]), encoder.encode('rin-session:' + match[1]));
+}
+
+// A session cookie is sent on top-level visits from other sites, where it
+// only has to identify the admin; every request that changes anything is a
+// POST, which SameSite=Lax never carries across sites.
+function sessionCookie(request, token, maxAge) {
+	const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+	return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function withCookie(response, cookie) {
+	response.headers.append('Set-Cookie', cookie);
+	return response;
+}
+
+/**
+ * Route ?manage=login|logout. Neither touches Google Drive. `login` answers
+ * only to the admin pair and sets the HttpOnly session cookie; `logout`
+ * clears it for whoever asks, which reveals nothing and changes no file.
+ */
+export async function handleAdminSession(request, settings, action) {
+	if (request.method !== 'POST') {
+		return json({ error: action === 'logout' ? 'Use POST to sign out.' : 'Use POST to sign in.' }, 405);
+	}
+	if (action === 'logout') return withCookie(json({ admin: false }), sessionCookie(request, '', 0));
+	if (request.headers.get('Sec-Fetch-Site') === 'cross-site') {
+		return json({ error: 'Cross-site requests are refused.' }, 403);
+	}
+	const denied = await adminDenied(request, settings, 'session');
+	if (denied) return denied;
+	const expires = Date.now() + SESSION_TTL;
+	return withCookie(json({ admin: true, expires }), sessionCookie(request, await sessionToken(settings, expires), SESSION_TTL / 1000));
+}
+
+/** True when the request carries the admin basic-auth pair or a current admin session. */
 export async function isAdminRequest(request, settings) {
 	if (!settings?.ADMIN_PASSWORD) return false;
 	const match = /^Basic +([A-Za-z0-9+/=]+)$/i.exec(request.headers.get('Authorization') || '');
-	if (!match) return false;
-	try {
-		const bytes = Uint8Array.from(atob(match[1]), char => char.charCodeAt(0));
-		const decoded = decoder.decode(bytes);
-		const separator = decoded.indexOf(':');
-		if (separator < 0) return false;
-		const user = decoded.slice(0, separator);
-		const pass = decoded.slice(separator + 1);
-		return await safeEqual(user, settings.ADMIN_USERNAME) && await safeEqual(pass, settings.ADMIN_PASSWORD);
-	} catch {
-		return false;
+	if (match) {
+		try {
+			const bytes = Uint8Array.from(atob(match[1]), char => char.charCodeAt(0));
+			const decoded = decoder.decode(bytes);
+			const separator = decoded.indexOf(':');
+			if (separator < 0) return false;
+			const user = decoded.slice(0, separator);
+			const pass = decoded.slice(separator + 1);
+			if (await safeEqual(user, settings.ADMIN_USERNAME) && await safeEqual(pass, settings.ADMIN_PASSWORD)) return true;
+		} catch {
+			return false;
+		}
 	}
+	return hasSession(request, settings);
 }
 
-function json(value, status = 200) {
+export function json(value, status = 200) {
 	return new Response(JSON.stringify(value), {
 		status,
 		headers: { 'Content-Type': 'application/json; charset=utf-8' }
 	});
 }
 
-function adminRequired() {
-	return new Response('Admin sign-in required.', {
-		status: 401,
-		headers: {
-			'WWW-Authenticate': 'Basic realm="Rin Index admin", charset="UTF-8"',
-			'Content-Type': 'text/plain; charset=utf-8'
-		}
-	});
+/**
+ * The 401 every admin route answers to anyone else. A request that already
+ * presented credentials, or one made by the page's own script, gets no
+ * challenge: the page shows its sign-in dialog instead of the browser opening
+ * its login prompt over it.
+ */
+export function adminRequired(request) {
+	const headers = { 'Content-Type': 'text/plain; charset=utf-8' };
+	if (!request.headers.has('Authorization') && !request.headers.has(CLIENT_HEADER)) {
+		headers['WWW-Authenticate'] = 'Basic realm="Rin Index admin", charset="UTF-8"';
+	}
+	return new Response('Admin sign-in required.', { status: 401, headers });
+}
+
+/**
+ * What stops an admin route when admin access is not configured (503) or the
+ * request is neither signed in nor carries the admin pair (401); null when it
+ * may go on. The router runs it before Google Drive is contacted, and each
+ * handler runs it again on its own.
+ */
+export async function adminDenied(request, settings, feature) {
+	if (!settings.ADMIN_PASSWORD) {
+		const error = feature === 'upload'
+			? 'Uploads are not configured. Set ADMIN_PASSWORD to enable them.'
+			: feature === 'session'
+				? 'Admin access is not configured. Set ADMIN_PASSWORD to enable it.'
+				: 'File management is not configured. Set ADMIN_PASSWORD to enable it.';
+		return json({ error }, 503);
+	}
+	if (!(await isAdminRequest(request, settings))) return adminRequired(request);
+	return null;
 }
 
 /**
@@ -120,13 +233,8 @@ function adminRequired() {
  * before any Drive request is made.
  */
 export async function handleUploadRequest(request, gd, action, path) {
-	const settings = gd.authConfig.settings;
-	if (!settings.ADMIN_PASSWORD) {
-		return json({ error: 'Uploads are not configured. Set ADMIN_PASSWORD to enable them.' }, 503);
-	}
-	if (!(await isAdminRequest(request, settings))) {
-		return adminRequired();
-	}
+	const denied = await adminDenied(request, gd.authConfig.settings, 'upload');
+	if (denied) return denied;
 	if (action === 'whoami') return json({ admin: true });
 	if (action === 'start') return uploadStart(request, gd, path);
 	if (action === 'chunk') return uploadChunk(request, gd);
@@ -247,7 +355,7 @@ async function uploadChunk(request, gd) {
 	} catch {
 		return json({ error: 'The chunk could not reach Google Drive. Retry to resume.', retry: true }, 502);
 	}
-	return relayUploadResponse(response, session);
+	return relayUploadResponse(response, session, gd);
 }
 
 async function uploadStatus(request, gd) {
@@ -266,7 +374,7 @@ async function uploadStatus(request, gd) {
 	} catch {
 		return json({ error: 'Could not reach Google Drive. Try again.', retry: true }, 502);
 	}
-	return relayUploadResponse(response, session);
+	return relayUploadResponse(response, session, gd);
 }
 
 // Cancels an unfinished session. Drive's resumable protocol closes a session
@@ -300,12 +408,15 @@ async function uploadCancel(request, gd) {
 	return json({ error: `Google Drive returned HTTP ${response.status} while closing the upload.`, cancelled: false, retry: true }, 502);
 }
 
-function relayUploadResponse(response, session) {
+// A completed upload changed the folder and the account's storage, so the
+// cached listings and quota summary are dropped before the answer goes out.
+function relayUploadResponse(response, session, gd) {
 	if (response.status === 308) {
 		const range = /^bytes=0-(\d+)$/.exec(response.headers.get('Range') || '');
 		return json({ done: false, committed: range ? Number(range[1]) + 1 : 0 });
 	}
 	if (response.status === 200 || response.status === 201) {
+		if (gd) gd.invalidate();
 		return response.json().then(file => json({
 			done: true,
 			committed: session.s,
