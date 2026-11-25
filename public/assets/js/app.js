@@ -51,7 +51,6 @@ document.body.innerHTML = `
 					<input id="admin-pass" name="pass" type="password" autocomplete="current-password" required>
 					<button class="button button-primary" type="submit">Sign in</button>
 				</form>
-				<ul class="upload-list" aria-label="Upload progress" hidden></ul>
 				<input class="upload-input" type="file" multiple hidden>
 				<p class="download-status" role="status" hidden></p>
 				<div class="column-labels" aria-hidden="true">
@@ -70,8 +69,24 @@ document.body.innerHTML = `
 			</section>
 			<section class="preview panel" aria-label="File preview" hidden></section>
 			<section class="folder-readme markdown" aria-label="Folder README" hidden></section>
+			<div class="upload-modal" hidden>
+				<div class="upload-modal-backdrop"></div>
+				<section class="upload-modal-card" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
+					<header class="upload-modal-header">
+						<h2 id="upload-modal-title">Uploading files</h2>
+						<button class="upload-modal-close" type="button" aria-label="Close upload progress"><span class="symbol symbol-close" aria-hidden="true"></span>Close</button>
+					</header>
+					<div class="upload-batch" hidden>
+						<p class="upload-batch-status"></p>
+						<div class="upload-bar"><span></span></div>
+						<p class="upload-batch-detail"></p>
+					</div>
+					<ul class="upload-modal-files"></ul>
+				</section>
+			</div>
 		</main>
 	</div>
+	<p class="copy-toast" role="status" aria-live="polite" hidden></p>
 `;
 for (const link of document.querySelectorAll('a[href="__ROOT__"]')) link.href = root;
 
@@ -176,6 +191,51 @@ function downloadLink(filePath, fileName, compact = false) {
 	return link;
 }
 
+// Copy URL: copies the same direct-download address the row's download
+// button uses (origin + encoded nested path), so every access rule the
+// Worker enforces for a direct download also applies to the copied URL.
+function copyUrlButton(downloadAnchor, fileName) {
+	const button = create('button', 'row-copy');
+	button.type = 'button';
+	button.title = 'Copy direct URL';
+	button.setAttribute('aria-label', 'Copy direct URL for ' + fileName);
+	button.append(create('span', 'symbol symbol-copy'));
+	button.addEventListener('click', () => copyDirectUrl(downloadAnchor.href, fileName));
+	return button;
+}
+
+async function copyDirectUrl(url, fileName) {
+	let copied = false;
+	try {
+		await navigator.clipboard.writeText(url);
+		copied = true;
+	} catch {}
+	if (!copied) {
+		// Fallback for browsers or plain-HTTP contexts without the
+		// asynchronous clipboard API.
+		try {
+			const helper = document.createElement('textarea');
+			helper.value = url;
+			helper.className = 'copy-helper';
+			helper.setAttribute('readonly', '');
+			document.body.append(helper);
+			helper.select();
+			copied = document.execCommand('copy');
+			helper.remove();
+		} catch {}
+	}
+	showCopyToast(copied ? 'URL copied · ' + fileName : 'Copy blocked · ' + url);
+}
+
+const copyToast = document.querySelector('.copy-toast');
+let copyToastTimer = 0;
+function showCopyToast(text) {
+	copyToast.textContent = text;
+	copyToast.hidden = false;
+	clearTimeout(copyToastTimer);
+	copyToastTimer = setTimeout(() => { copyToast.hidden = true; }, 2200);
+}
+
 async function post(endpoint, fields = {}) {
 	const response = await fetch(endpoint, { method: 'POST', body: new URLSearchParams(fields) });
 	if (!response.ok) throw new Error('Request failed. Try again in a moment.');
@@ -222,7 +282,10 @@ function row(file) {
 	nameGroup.append(displayName, create('span', 'type-text', kind.label));
 	link.append(icon(kind.type), nameGroup);
 	const action = create('span', 'row-action');
-	if (!isSearch && !folder) action.append(downloadLink(filePath, file.name, true));
+	if (!isSearch && !folder) {
+		const download = downloadLink(filePath, file.name, true);
+		action.append(download, copyUrlButton(download, file.name));
+	}
 	if (folder) {
 		const arrow = create('span', 'row-arrow', '›');
 		arrow.setAttribute('aria-hidden', 'true');
@@ -320,14 +383,24 @@ async function downloadFolderFiles() {
 
 // Admin uploads: the Worker seals the Drive session behind an opaque token,
 // so credentials, tokens, and session URLs never appear in page responses.
+// The engine (upload-engine.js) drives resumable chunks with live speed and
+// ETA; this layer renders the centered progress popup and refreshes the
+// listing when the batch finishes.
 const uploadButton = document.querySelector('.upload-files');
 const adminButton = document.querySelector('.admin-signin');
 const adminForm = document.querySelector('.admin-signin-form');
 const uploadInput = document.querySelector('.upload-input');
-const uploadList = document.querySelector('.upload-list');
+const uploadModal = document.querySelector('.upload-modal');
+const uploadModalTitle = document.querySelector('#upload-modal-title');
+const uploadModalClose = document.querySelector('.upload-modal-close');
+const uploadBatch = document.querySelector('.upload-batch');
+const uploadBatchStatus = document.querySelector('.upload-batch-status');
+const uploadBatchFill = document.querySelector('.upload-batch .upload-bar span');
+const uploadBatchDetail = document.querySelector('.upload-batch-detail');
+const uploadFilesList = document.querySelector('.upload-modal-files');
+const uploadRows = [];
 let adminHeader = null;
-let refreshTimer = 0;
-let uploadsDone = 0;
+let uploadEngine = null;
 
 function authHeaders() {
 	return adminHeader ? { 'Authorization': adminHeader } : {};
@@ -338,14 +411,6 @@ function basicAuthValue(username, password) {
 	let binary = '';
 	for (const byte of bytes) binary += String.fromCharCode(byte);
 	return 'Basic ' + btoa(binary);
-}
-
-async function readUploadError(response) {
-	try {
-		const data = await response.json();
-		if (data && typeof data.error === 'string') return data.error;
-	} catch {}
-	return null;
 }
 
 function refreshListing() {
@@ -360,121 +425,149 @@ function refreshListing() {
 	loadPage();
 }
 
-function scheduleRefresh() {
-	clearTimeout(refreshTimer);
-	refreshTimer = setTimeout(refreshListing, 800);
+// XHR transport gives byte-granular progress events while a chunk streams,
+// keeping the progress bar, speed, and ETA current without polling.
+function xhrTransport(url, init, onProgress) {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open(init.method || 'GET', url);
+		for (const [name, value] of Object.entries(init.headers || {})) {
+			try { request.setRequestHeader(name, value); } catch {}
+		}
+		if (onProgress) {
+			request.upload.onprogress = event => {
+				if (event.lengthComputable) onProgress(event.loaded);
+			};
+		}
+		request.onload = () => resolve({
+			status: request.status,
+			ok: request.status >= 200 && request.status < 300,
+			headers: { get: name => request.getResponseHeader(name) },
+			json: async () => JSON.parse(request.responseText)
+		});
+		request.onerror = () => reject(new TypeError('The chunk could not reach Rin Index.'));
+		request.onabort = () => reject(new TypeError('The upload request was cancelled.'));
+		request.send(init.body);
+	});
 }
 
-function uploadRow(file) {
-	const item = create('li', 'upload-item');
-	const name = create('p', 'upload-name', file.name);
-	name.title = file.name;
+function getUploadEngine() {
+	if (!uploadEngine) uploadEngine = new window.RinUploadEngine.Engine({ transport: xhrTransport });
+	return uploadEngine;
+}
+
+function formatSpeed(bytesPerSecond) {
+	if (bytesPerSecond == null || !Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '—';
+	return (bytesPerSecond / (1024 * 1024)).toFixed(1) + ' MB/s';
+}
+
+function formatEta(seconds) {
+	if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+	const total = Math.round(seconds);
+	if (total < 60) return total + 's left';
+	const minutes = Math.floor(total / 60);
+	if (minutes < 60) return minutes + 'm ' + (total % 60) + 's left';
+	return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm left';
+}
+
+function modalRow(event) {
+	if (uploadRows[event.index]) return uploadRows[event.index];
+	const item = create('li', 'upload-modal-file');
+	const name = create('p', 'upload-file-name', event.name);
+	name.title = event.name;
 	const bar = create('div', 'upload-bar');
 	const fill = create('span');
 	bar.append(fill);
-	const status = create('p', 'upload-status', 'Starting…');
-	item.append(name, bar, status);
-	uploadList.append(item);
-	return { item, fill, status };
+	const detail = create('p', 'upload-file-detail', 'Starting…');
+	item.append(name, bar, detail);
+	uploadFilesList.append(item);
+	uploadRows[event.index] = { item, fill, detail };
+	return uploadRows[event.index];
 }
 
-function reportProgress(fill, status, offset, total) {
-	fill.style.width = total ? (offset / total * 100).toFixed(1) + '%' : '100%';
-	status.textContent = 'Uploading… ' + formatSize(offset) + ' of ' + formatSize(total);
-}
-
-async function syncOffset(token) {
-	const response = await fetch(path + '?upload=status&u=' + encodeURIComponent(token), {
-		method: 'POST',
-		headers: authHeaders()
-	});
-	const data = await response.json().catch(() => null);
-	if (data && data.restart) throw new Error('The upload session expired. Start the upload again.');
-	if (data && typeof data.committed === 'number') return data.committed;
-	throw new Error('Could not confirm how much of the file Google Drive received.');
-}
-
-async function sendChunk(token, offset, chunk, total) {
-	const response = await fetch(path + '?upload=chunk&u=' + encodeURIComponent(token) + '&offset=' + offset, {
-		method: 'PUT',
-		headers: authHeaders(),
-		body: chunk
-	});
-	if (response.status === 401) {
-		const error = new Error('Admin sign-in expired. Sign in again and retry the upload.');
-		error.fatal = true;
-		throw error;
+function handleUploadEvent(event) {
+	if (event.type === 'file-start') {
+		modalRow(event);
+		return;
 	}
-	const data = await response.json().catch(() => null);
-	if (!response.ok || !data || typeof data.done !== 'boolean') {
-		const error = new Error((data && data.error) || 'The chunk upload failed.');
-		if (data && data.restart) error.fatal = true;
-		throw error;
+	if (event.type === 'file-progress') {
+		const row = modalRow(event);
+		row.fill.style.width = Math.min(100, event.percent || 0).toFixed(1) + '%';
+		row.detail.textContent = (event.percent || 0).toFixed(0) + '% · ' +
+			formatSize(event.uploaded) + ' of ' + formatSize(event.total) + ' · ' +
+			formatSpeed(event.speed) + ' · ' + formatEta(event.eta);
+		return;
 	}
-	return data;
-}
-
-async function uploadFile(file) {
-	const row = uploadRow(file);
-	try {
-		const start = await fetch(path + '?upload=start', {
-			method: 'POST',
-			headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: file.name, size: file.size, type: file.type || 'application/octet-stream' })
-		});
-		if (start.status === 401) throw new Error('Admin sign-in expired. Sign in again and retry the upload.');
-		if (!start.ok) throw new Error((await readUploadError(start)) || 'The upload could not start.');
-		const session = await start.json();
-		if (file.size === 0) {
-			const data = await sendChunk(session.token, 0, new Blob([]), 0);
-			if (!data.done) throw new Error('Google Drive did not accept the empty file.');
-			finishUpload(row, file);
-			return;
-		}
-		let offset = 0;
-		let attempts = 0;
-		while (offset < file.size) {
-			const end = Math.min(offset + session.chunk_size, file.size);
-			try {
-				const data = await sendChunk(session.token, offset, file.slice(offset, end), file.size);
-				if (data.done) {
-					finishUpload(row, file);
-					return;
-				}
-				offset = data.committed;
-				attempts = 0;
-				reportProgress(row.fill, row.status, offset, file.size);
-			} catch (error) {
-				if (error.fatal) throw error;
-				attempts++;
-				if (attempts > 4) throw new Error((error.message || 'The upload stalled.') + ' Try again to resume from where it stopped.');
-				row.status.textContent = 'Interrupted. Resuming…';
-				offset = await syncOffset(session.token);
-				reportProgress(row.fill, row.status, offset, file.size);
-			}
-		}
-	} catch (error) {
+	if (event.type === 'file-retry') {
+		const row = modalRow(event);
+		row.item.classList.add('retrying');
+		row.detail.textContent = 'Retrying (attempt ' + event.attempt + ')… ' +
+			formatSize(event.committed) + ' of ' + formatSize(event.total) + ' confirmed';
+		return;
+	}
+	if (event.type === 'file-done') {
+		const row = modalRow(event);
+		row.item.classList.remove('retrying');
+		row.item.classList.add('done');
+		row.fill.style.width = '100%';
+		row.detail.textContent = 'Uploaded · ' + formatSize(event.total);
+		return;
+	}
+	if (event.type === 'file-error') {
+		const row = modalRow(event);
+		row.item.classList.remove('retrying');
 		row.item.classList.add('error');
-		row.status.textContent = error.message || 'The upload failed.';
+		row.fill.style.width = row.fill.style.width || '0%';
+		row.detail.textContent = event.message;
+		return;
+	}
+	if (event.type === 'batch-progress') {
+		uploadBatch.hidden = event.filesTotal <= 1;
+		uploadBatchFill.style.width = Math.min(100, event.percent || 0).toFixed(1) + '%';
+		uploadBatchStatus.textContent = event.filesDone + ' of ' + event.filesTotal + ' files · ' +
+			formatSize(event.uploaded) + ' of ' + formatSize(event.total);
+		uploadBatchDetail.textContent = (event.percent || 0).toFixed(0) + '% · ' +
+			formatSpeed(event.speed) + ' · ' + formatEta(event.eta);
+		return;
+	}
+	if (event.type === 'batch-done') {
+		uploadModalTitle.textContent = event.failed
+			? 'Uploads finished (' + event.succeeded + ' of ' + event.filesTotal + ')'
+			: 'Uploads finished';
+		uploadBatchDetail.textContent = event.succeeded + ' of ' + event.filesTotal + ' uploaded' +
+			(event.failed ? ' · ' + event.failed + ' failed' : '');
 	}
 }
 
-function finishUpload(row, file) {
-	row.fill.style.width = '100%';
-	row.status.textContent = 'Uploaded ' + formatSize(file.size) + '.';
-	row.item.classList.add('done');
-	uploadsDone++;
-	scheduleRefresh();
+function openUploadModal() {
+	uploadFilesList.replaceChildren();
+	uploadRows.length = 0;
+	uploadBatch.hidden = true;
+	uploadBatchFill.style.width = '0%';
+	uploadModalTitle.textContent = 'Uploading files';
+	uploadModal.hidden = false;
+	document.body.classList.add('upload-open');
 }
 
-async function uploadFiles(files) {
+function closeUploadModal() {
+	uploadModal.hidden = true;
+	document.body.classList.remove('upload-open');
+}
+
+function startUpload(files) {
+	openUploadModal();
 	uploadButton.disabled = true;
-	for (const file of files) await uploadFile(file);
-	if (uploadsDone) {
-		clearTimeout(refreshTimer);
-		refreshListing();
-	}
-	uploadButton.disabled = false;
+	getUploadEngine().upload(files, {
+		path,
+		getHeaders: authHeaders,
+		concurrency: 2,
+		onEvent: handleUploadEvent
+	}).then(state => {
+		uploadButton.disabled = false;
+		if (state.succeeded) refreshListing();
+	}).catch(() => {
+		uploadButton.disabled = false;
+	});
 }
 
 function setupAdminUploads() {
@@ -506,11 +599,12 @@ function setupAdminUploads() {
 	uploadInput.addEventListener('change', () => {
 		const files = [...uploadInput.files];
 		uploadInput.value = '';
-		if (files.length) {
-			uploadList.hidden = false;
-			uploadsDone = 0;
-			uploadFiles(files);
-		}
+		if (files.length) startUpload(files);
+	});
+	uploadModalClose.addEventListener('click', closeUploadModal);
+	document.querySelector('.upload-modal-backdrop').addEventListener('click', closeUploadModal);
+	document.addEventListener('keydown', event => {
+		if (event.key === 'Escape' && !uploadModal.hidden) closeUploadModal();
 	});
 }
 
