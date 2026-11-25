@@ -121,6 +121,7 @@ function html(order, model) {
 	<link rel="stylesheet" href="/assets/css/rin-index.css">
 	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
 	<script src="/assets/vendor/markdown-it.min.js" defer></script>
+	<script src="/assets/js/upload-engine.js" defer></script>
 	<script type="module" src="/assets/js/app.js"></script>
 </head>
 <body><noscript>Enable JavaScript to browse Rin Index.</noscript></body>
