@@ -34,6 +34,15 @@ export function readSettings(env) {
 		if (!hasPassword) throw new Error('Set INDEX_PASSWORD for a private index.');
 		settings.INDEX_PASSWORD = env.INDEX_PASSWORD;
 	}
+
+	// Admin uploads are optional: setting ADMIN_PASSWORD enables them.
+	settings.ADMIN_USERNAME = env.ADMIN_USERNAME?.trim() || 'admin';
+	if (!/^[\x21-\x7e]+$/.test(settings.ADMIN_USERNAME) || settings.ADMIN_USERNAME.includes(':')) {
+		throw new Error('ADMIN_USERNAME must use printable ASCII without spaces or colons.');
+	}
+	if (env.ADMIN_PASSWORD !== undefined && env.ADMIN_PASSWORD.trim() !== '') {
+		settings.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
+	}
 	return settings;
 }
 
