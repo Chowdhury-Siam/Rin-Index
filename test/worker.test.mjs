@@ -239,3 +239,295 @@ for (const { name, driveId, parents, myDriveRoot, unavailableMyDrive, rootType }
 		assert.match(oldFolderLink.headers.get('Content-Type'), /^text\/html/);
 	});
 }
+
+// Admin uploads.
+
+const adminEnv = { ...env, ADMIN_PASSWORD: 'admin-pass' };
+const adminAuth = 'Basic ' + Buffer.from('admin:admin-pass').toString('base64');
+const SESSION_URL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=sess-1';
+
+test('admin upload settings are optional and validated', () => {
+	assert.equal(readSettings(env).ADMIN_USERNAME, 'admin');
+	assert.equal(readSettings(env).ADMIN_PASSWORD, undefined);
+	assert.equal(readSettings(adminEnv).ADMIN_PASSWORD, 'admin-pass');
+	assert.equal(readSettings({ ...adminEnv, ADMIN_USERNAME: ' root ' }).ADMIN_USERNAME, 'root');
+	assert.throws(() => readSettings({ ...adminEnv, ADMIN_USERNAME: 'not:valid' }), /ADMIN_USERNAME/);
+	assert.equal(readSettings({ ...env, ADMIN_PASSWORD: '   ' }).ADMIN_PASSWORD, undefined);
+});
+
+test('uploads are refused without admin credentials', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-gate');
+	let sessions = 0;
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files') sessions++;
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const config = { ...env, INDEX_PASSWORD: '', ADMIN_PASSWORD: 'admin-pass' };
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), config);
+	const start = {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1, type: 'text/plain' })
+	};
+
+	const anonymous = await request('/0:/?upload=start', start);
+	assert.equal(anonymous.status, 401);
+	assert.match(anonymous.headers.get('WWW-Authenticate'), /^Basic realm="Rin Index admin"/);
+
+	const viewer = await request('/0:/?upload=start', { ...start, headers: { ...start.headers, Authorization: auth } });
+	assert.equal(viewer.status, 401);
+
+	const wrongPassword = 'Basic ' + Buffer.from('admin:wrong').toString('base64');
+	const wrong = await request('/0:/?upload=start', { ...start, headers: { ...start.headers, Authorization: wrongPassword } });
+	assert.equal(wrong.status, 401);
+
+	assert.equal((await request('/0:/?upload=whoami')).status, 401);
+	assert.equal(sessions, 0);
+});
+
+test('uploads are disabled without an admin password', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-off');
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const response = await worker.fetch(new Request('https://index.test/0:/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: auth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1 })
+	}), env);
+	assert.equal(response.status, 503);
+	assert.match((await response.json()).error, /not configured/);
+});
+
+test('an admin starts a resumable upload into a nested folder and streams chunks', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-flow');
+	t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'POST') {
+			assert.equal(url.searchParams.get('uploadType'), 'resumable');
+			assert.equal(options.headers['X-Upload-Content-Length'], '11');
+			assert.equal(options.headers['X-Upload-Content-Type'], 'video/x-matroska');
+			assert.match(options.headers.Authorization, /^Bearer test-access$/);
+			assert.deepEqual(JSON.parse(options.body), { name: 'Episode 01.mkv', parents: ['season1'] });
+			return new Response(null, { status: 200, headers: { Location: SESSION_URL } });
+		}
+		if (url.pathname === '/upload/drive/v3/files') {
+			assert.equal(url.searchParams.get('upload_id'), 'sess-1');
+			assert.equal(options.method, 'PUT');
+			const range = options.headers['Content-Range'];
+			if (range === 'bytes 0-4/11') {
+				assert.equal(await new Response(options.body).text(), 'Hello');
+				return new Response(null, { status: 308, headers: { Range: 'bytes=0-4' } });
+			}
+			assert.equal(range, 'bytes 5-10/11');
+			assert.equal(await new Response(options.body).text(), ' World');
+			return Response.json({ id: 'new-file', name: 'Episode 01.mkv', size: '11' }, { status: 201 });
+		}
+		assert.equal(url.pathname, '/drive/v3/files');
+		const query = url.searchParams.get('q');
+		if (query.includes("name = 'Season 1'")) {
+			return Response.json({ files: [{ id: 'season1', name: 'Season 1', mimeType: folderMimeType }] });
+		}
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const started = await request('/0:/Season%201/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'Episode 01.mkv', size: 11, type: 'video/x-matroska' })
+	});
+	assert.equal(started.status, 200);
+	const startBody = await started.text();
+	const session = JSON.parse(startBody);
+	assert.equal(session.chunk_size, 16 * 1024 * 1024);
+	assert.equal(session.total, 11);
+	assert.match(session.token, /^[A-Za-z0-9_-]+$/);
+	assert.ok(!startBody.includes(SESSION_URL), 'session URL must stay sealed');
+	assert.ok(!startBody.includes('test-access'), 'access token must not leak');
+	assert.ok(!startBody.includes('admin-pass'), 'admin password must not leak');
+
+	const first = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=0', {
+		method: 'PUT',
+		headers: { Authorization: adminAuth },
+		body: 'Hello'
+	});
+	assert.equal(first.status, 200);
+	assert.deepEqual(await first.json(), { done: false, committed: 5 });
+
+	const second = await request('/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=5', {
+		method: 'PUT',
+		headers: { Authorization: adminAuth },
+		body: ' World'
+	});
+	assert.equal(second.status, 200);
+	assert.deepEqual(await second.json(), {
+		done: true,
+		committed: 11,
+		file: { id: 'new-file', name: 'Episode 01.mkv', size: '11' }
+	});
+});
+
+test('an interrupted upload resumes from the committed offset without a duplicate', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-resume');
+	let sessions = 0;
+	const total = 3 * 1024 * 1024;
+	t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files' && options.method === 'POST') {
+			sessions++;
+			return new Response(null, { status: 200, headers: { Location: SESSION_URL } });
+		}
+		if (url.pathname === '/upload/drive/v3/files') {
+			const range = options.headers['Content-Range'];
+			if (range === 'bytes */' + total) {
+				assert.equal(options.body, undefined, 'status query sends no bytes');
+				return new Response(null, { status: 308, headers: { Range: 'bytes=0-1048575' } });
+			}
+			if (range === 'bytes 1048576-3145727/' + total) return Response.json({ id: 'new-file' }, { status: 201 });
+			if (range === 'bytes 1048576-2097151/' + total) return new Response(null, { status: 500 });
+			assert.equal(range, 'bytes 0-1048575/' + total);
+			return new Response(null, { status: 308, headers: { Range: 'bytes=0-1048575' } });
+		}
+		assert.equal(url.pathname, '/drive/v3/files');
+		if (url.searchParams.get('q').includes("name = 'Season 1'")) {
+			return Response.json({ files: [{ id: 'season1', name: 'Season 1', mimeType: folderMimeType }] });
+		}
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const started = await request('/0:/Season%201/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'Movie.mp4', size: total, type: 'video/mp4' })
+	});
+	const session = await started.json();
+	const chunkUrl = offset => '/0:/Season%201/?upload=chunk&u=' + encodeURIComponent(session.token) + '&offset=' + offset;
+	const auth = { Authorization: adminAuth };
+
+	const first = await request(chunkUrl(0), { method: 'PUT', headers: auth, body: 'a'.repeat(1024 * 1024) });
+	assert.deepEqual(await first.json(), { done: false, committed: 1024 * 1024 });
+
+	const failed = await request(chunkUrl(1024 * 1024), { method: 'PUT', headers: auth, body: 'b'.repeat(1024 * 1024) });
+	assert.equal(failed.status, 502);
+	assert.equal((await failed.json()).retry, true);
+
+	const status = await request('/0:/Season%201/?upload=status&u=' + encodeURIComponent(session.token), {
+		method: 'POST',
+		headers: auth
+	});
+	assert.equal(status.status, 200);
+	assert.deepEqual(await status.json(), { done: false, committed: 1024 * 1024 });
+
+	const rest = await request(chunkUrl(1024 * 1024), { method: 'PUT', headers: auth, body: 'c'.repeat(2 * 1024 * 1024) });
+	assert.equal((await rest.json()).done, true);
+
+	assert.equal(sessions, 1, 'retrying must reuse the session, not create a second file');
+});
+
+test('upload destinations outside the index root are refused', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-destination');
+	let sessions = 0;
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files') sessions++;
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+	const missing = await request('/0:/Missing/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1 })
+	});
+	assert.equal(missing.status, 404);
+	assert.match((await missing.json()).error, /not found/);
+
+	const filePage = await request('/0:/hello.txt?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1 })
+	});
+	assert.equal(filePage.status, 400);
+	assert.match((await filePage.json()).error, /folder page/);
+	assert.equal(sessions, 0);
+});
+
+test('Drive write errors surface a clear message', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-forbidden');
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		if (url.pathname === '/upload/drive/v3/files') return new Response(null, { status: 403 });
+		if (url.pathname === '/drive/v3/files') return Response.json({ files: [] });
+		assert.fail(`Unexpected request ${url}`);
+	});
+	const response = await worker.fetch(new Request('https://index.test/0:/?upload=start', {
+		method: 'POST',
+		headers: { Authorization: adminAuth, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name: 'a.txt', size: 1 })
+	}), adminEnv);
+	assert.equal(response.status, 403);
+	assert.match((await response.json()).error, /cannot create files/);
+});
+
+test('the admin pair browses a private index and core flows keep working with uploads enabled', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?uploads-core');
+	t.mock.method(globalThis, 'fetch', async input => {
+		const url = new URL(input);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname === '/drive/v3/files/root') {
+			return Response.json({ id: 'real-root', name: 'My Drive', mimeType: folderMimeType });
+		}
+		if (url.pathname.endsWith('/files/file-id') && url.searchParams.get('alt') === 'media') {
+			return new Response('hello');
+		}
+		assert.equal(url.pathname, '/drive/v3/files');
+		const query = url.searchParams.get('q');
+		if (query.includes("name = 'hello.txt'")) {
+			return Response.json({ files: [{ id: 'file-id', name: 'hello.txt', mimeType: 'text/plain' }] });
+		}
+		return Response.json({ files: [{ id: 'file-id', name: 'hello.txt', mimeType: 'text/plain' }] });
+	});
+	const request = (path, options) => worker.fetch(new Request('https://index.test' + path, options), adminEnv);
+
+	assert.equal((await request('/0:/')).status, 401);
+	const adminPage = await request('/0:/', { headers: { Authorization: adminAuth } });
+	assert.equal(adminPage.status, 200);
+	const adminHtml = await adminPage.text();
+	assert.match(adminHtml, /"can_upload":true/);
+	assert.match(adminHtml, /"is_admin":true/);
+	const viewerPage = await request('/0:/', { headers: { Authorization: auth } });
+	const viewerHtml = await viewerPage.text();
+	assert.match(viewerHtml, /"can_upload":true/);
+	assert.match(viewerHtml, /"is_admin":false/);
+
+	const listing = await request('/0:/', {
+		method: 'POST',
+		headers: { Authorization: adminAuth },
+		body: new URLSearchParams({ page_index: '0' })
+	});
+	assert.equal(listing.status, 200);
+	assert.equal((await listing.json()).data.files[0].name, 'hello.txt');
+
+	const download = await request('/0:/hello.txt', { headers: { Authorization: adminAuth } });
+	assert.equal(download.status, 200);
+	assert.equal(await download.text(), 'hello');
+
+	const links = await request('/0:/?download=links', { method: 'HEAD', headers: { Authorization: adminAuth } });
+	assert.equal(links.status, 200);
+	assert.match(links.headers.get('Content-Disposition'), /^attachment; filename="My Drive\.txt"/);
+});
