@@ -53,6 +53,8 @@ jobs:
           INDEX_USERNAME: ${{ secrets.INDEX_USERNAME }}
           PROTECT_FILE_LINK: ${{ secrets.PROTECT_FILE_LINK }}
           SITE_NAME: ${{ secrets.SITE_NAME }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
       - name: Deploy to Cloudflare
         run: |
