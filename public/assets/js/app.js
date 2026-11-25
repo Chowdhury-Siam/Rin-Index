@@ -40,8 +40,19 @@ document.body.innerHTML = `
 						<p class="count"></p>
 						<a class="button button-secondary save-folder-links" hidden>Save links (.txt)</a>
 						<button class="button button-primary download-files" type="button" hidden><span class="symbol symbol-download" aria-hidden="true"></span>Download files</button>
+						<button class="button button-secondary admin-signin" type="button" hidden>Admin</button>
+						<button class="button button-primary upload-files" type="button" hidden><span class="symbol symbol-upload" aria-hidden="true"></span>Upload</button>
 					</div>
 				</div>
+				<form class="admin-signin-form" hidden>
+					<label for="admin-user">Admin username</label>
+					<input id="admin-user" name="user" autocomplete="username" required>
+					<label for="admin-pass">Admin password</label>
+					<input id="admin-pass" name="pass" type="password" autocomplete="current-password" required>
+					<button class="button button-primary" type="submit">Sign in</button>
+				</form>
+				<ul class="upload-list" aria-label="Upload progress" hidden></ul>
+				<input class="upload-input" type="file" multiple hidden>
 				<p class="download-status" role="status" hidden></p>
 				<div class="column-labels" aria-hidden="true">
 					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
@@ -307,6 +318,202 @@ async function downloadFolderFiles() {
 	}
 }
 
+// Admin uploads: the Worker seals the Drive session behind an opaque token,
+// so credentials, tokens, and session URLs never appear in page responses.
+const uploadButton = document.querySelector('.upload-files');
+const adminButton = document.querySelector('.admin-signin');
+const adminForm = document.querySelector('.admin-signin-form');
+const uploadInput = document.querySelector('.upload-input');
+const uploadList = document.querySelector('.upload-list');
+let adminHeader = null;
+let refreshTimer = 0;
+let uploadsDone = 0;
+
+function authHeaders() {
+	return adminHeader ? { 'Authorization': adminHeader } : {};
+}
+
+function basicAuthValue(username, password) {
+	const bytes = new TextEncoder().encode(username + ':' + password);
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return 'Basic ' + btoa(binary);
+}
+
+async function readUploadError(response) {
+	try {
+		const data = await response.json();
+		if (data && typeof data.error === 'string') return data.error;
+	} catch {}
+	return null;
+}
+
+function refreshListing() {
+	fileList.replaceChildren();
+	for (const selector of ['.folder-notes', '.folder-readme']) {
+		const section = document.querySelector(selector);
+		section.replaceChildren();
+		section.hidden = true;
+	}
+	pageIndex = 0;
+	nextPageToken = '';
+	loadPage();
+}
+
+function scheduleRefresh() {
+	clearTimeout(refreshTimer);
+	refreshTimer = setTimeout(refreshListing, 800);
+}
+
+function uploadRow(file) {
+	const item = create('li', 'upload-item');
+	const name = create('p', 'upload-name', file.name);
+	name.title = file.name;
+	const bar = create('div', 'upload-bar');
+	const fill = create('span');
+	bar.append(fill);
+	const status = create('p', 'upload-status', 'Starting…');
+	item.append(name, bar, status);
+	uploadList.append(item);
+	return { item, fill, status };
+}
+
+function reportProgress(fill, status, offset, total) {
+	fill.style.width = total ? (offset / total * 100).toFixed(1) + '%' : '100%';
+	status.textContent = 'Uploading… ' + formatSize(offset) + ' of ' + formatSize(total);
+}
+
+async function syncOffset(token) {
+	const response = await fetch(path + '?upload=status&u=' + encodeURIComponent(token), {
+		method: 'POST',
+		headers: authHeaders()
+	});
+	const data = await response.json().catch(() => null);
+	if (data && data.restart) throw new Error('The upload session expired. Start the upload again.');
+	if (data && typeof data.committed === 'number') return data.committed;
+	throw new Error('Could not confirm how much of the file Google Drive received.');
+}
+
+async function sendChunk(token, offset, chunk, total) {
+	const response = await fetch(path + '?upload=chunk&u=' + encodeURIComponent(token) + '&offset=' + offset, {
+		method: 'PUT',
+		headers: authHeaders(),
+		body: chunk
+	});
+	if (response.status === 401) {
+		const error = new Error('Admin sign-in expired. Sign in again and retry the upload.');
+		error.fatal = true;
+		throw error;
+	}
+	const data = await response.json().catch(() => null);
+	if (!response.ok || !data || typeof data.done !== 'boolean') {
+		const error = new Error((data && data.error) || 'The chunk upload failed.');
+		if (data && data.restart) error.fatal = true;
+		throw error;
+	}
+	return data;
+}
+
+async function uploadFile(file) {
+	const row = uploadRow(file);
+	try {
+		const start = await fetch(path + '?upload=start', {
+			method: 'POST',
+			headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: file.name, size: file.size, type: file.type || 'application/octet-stream' })
+		});
+		if (start.status === 401) throw new Error('Admin sign-in expired. Sign in again and retry the upload.');
+		if (!start.ok) throw new Error((await readUploadError(start)) || 'The upload could not start.');
+		const session = await start.json();
+		if (file.size === 0) {
+			const data = await sendChunk(session.token, 0, new Blob([]), 0);
+			if (!data.done) throw new Error('Google Drive did not accept the empty file.');
+			finishUpload(row, file);
+			return;
+		}
+		let offset = 0;
+		let attempts = 0;
+		while (offset < file.size) {
+			const end = Math.min(offset + session.chunk_size, file.size);
+			try {
+				const data = await sendChunk(session.token, offset, file.slice(offset, end), file.size);
+				if (data.done) {
+					finishUpload(row, file);
+					return;
+				}
+				offset = data.committed;
+				attempts = 0;
+				reportProgress(row.fill, row.status, offset, file.size);
+			} catch (error) {
+				if (error.fatal) throw error;
+				attempts++;
+				if (attempts > 4) throw new Error((error.message || 'The upload stalled.') + ' Try again to resume from where it stopped.');
+				row.status.textContent = 'Interrupted. Resuming…';
+				offset = await syncOffset(session.token);
+				reportProgress(row.fill, row.status, offset, file.size);
+			}
+		}
+	} catch (error) {
+		row.item.classList.add('error');
+		row.status.textContent = error.message || 'The upload failed.';
+	}
+}
+
+function finishUpload(row, file) {
+	row.fill.style.width = '100%';
+	row.status.textContent = 'Uploaded ' + formatSize(file.size) + '.';
+	row.item.classList.add('done');
+	uploadsDone++;
+	scheduleRefresh();
+}
+
+async function uploadFiles(files) {
+	uploadButton.disabled = true;
+	for (const file of files) await uploadFile(file);
+	if (uploadsDone) {
+		clearTimeout(refreshTimer);
+		refreshListing();
+	}
+	uploadButton.disabled = false;
+}
+
+function setupAdminUploads() {
+	if (model.is_admin) {
+		uploadButton.hidden = false;
+	} else {
+		adminButton.hidden = false;
+		adminButton.addEventListener('click', () => {
+			adminButton.hidden = true;
+			adminForm.hidden = false;
+			adminForm.elements.user.focus();
+		});
+		adminForm.addEventListener('submit', async event => {
+			event.preventDefault();
+			const header = basicAuthValue(adminForm.elements.user.value, adminForm.elements.pass.value);
+			try {
+				const response = await fetch(path + '?upload=whoami', { headers: { 'Authorization': header } });
+				if (!response.ok) throw new Error();
+				adminHeader = header;
+				adminForm.hidden = true;
+				adminForm.reset();
+				uploadButton.hidden = false;
+			} catch {
+				showNotice('That admin sign-in did not work. Check the username and password.', 'warning');
+			}
+		});
+	}
+	uploadButton.addEventListener('click', () => uploadInput.click());
+	uploadInput.addEventListener('change', () => {
+		const files = [...uploadInput.files];
+		uploadInput.value = '';
+		if (files.length) {
+			uploadList.hidden = false;
+			uploadsDone = 0;
+			uploadFiles(files);
+		}
+	});
+}
+
 async function loadPage() {
 	if (loading) return;
 	loading = true;
@@ -411,6 +618,7 @@ if (isSearch || isFolder) {
 		saveLinksButton.href = path + '?download=links';
 		saveLinksButton.hidden = false;
 		downloadFilesButton.addEventListener('click', downloadFolderFiles);
+		if (model.can_upload) setupAdminUploads();
 	}
 	loadButton.addEventListener('click', loadPage);
 	folderPassword.addEventListener('submit', event => {
