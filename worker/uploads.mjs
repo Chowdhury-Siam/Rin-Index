@@ -3,13 +3,15 @@
  *
  * Protocol: the browser starts a resumable session for the open folder, then
  * PUTs one chunk per request. Chunk bodies are streamed straight through to
- * the Drive session while they are still arriving from the browser, so the
- * browser→Worker and Worker→Drive legs overlap instead of running back to
- * back. Chunks stay far below the Free plan's ~100 MB request-body ceiling,
- * the Worker never buffers a whole chunk in memory, and each request performs
- * a single upstream subrequest. Chunks always target one resumable session,
- * so an interrupted upload resumes at Google's last committed byte instead of
- * creating a duplicate file.
+ * the Drive session while they are still arriving from the browser, and the
+ * upstream PUT declares its exact length, so the browser→Worker and
+ * Worker→Drive legs overlap instead of running back to back. Chunks stay just
+ * under the Free plan's ~100 MB request-body ceiling, the Worker never
+ * buffers a whole chunk in memory, and each request performs a single
+ * upstream subrequest. Chunks always target one resumable session, so an
+ * interrupted upload resumes at Google's last committed byte instead of
+ * creating a duplicate file. A cancel closes that session through Drive's
+ * DELETE so the partial bytes are dropped instead of lingering for a week.
  *
  * The Drive session URL is sealed with AES-GCM (key derived from
  * GOOGLE_CLIENT_SECRET) into an opaque token. Raw session URLs, OAuth tokens,
@@ -22,9 +24,11 @@ const decoder = new TextDecoder();
 // unit, comfortably below the Workers Free request-body limit. Clients grow
 // the chunk adaptively (bounded by max_chunk) as the transfer proves reliable.
 const CHUNK_SIZE = 16 * 1024 * 1024;
-// Hard server-side ceiling for one chunk, just under the Workers Free
-// request-body cap. The browser's own adaptive cap stays well below this.
-const MAX_CHUNK = 96 * 1024 * 1024;
+// Hard server-side ceiling for one chunk: the biggest multiple of Drive's
+// 256 KiB unit below the 100 MB request-body limit of Cloudflare Free and
+// Pro zones. Cloudflare answers anything larger with 413 before the Worker
+// runs, so the browser's own ceiling matches this number.
+const MAX_CHUNK = 95 * 1024 * 1024;
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const DRIVE_SESSION_ORIGIN = 'https://www.googleapis.com';
 
@@ -112,7 +116,7 @@ function adminRequired() {
 }
 
 /**
- * Route ?upload=start|chunk|status|whoami. Every action is admin-gated
+ * Route ?upload=start|chunk|status|cancel|whoami. Every action is admin-gated
  * before any Drive request is made.
  */
 export async function handleUploadRequest(request, gd, action, path) {
@@ -127,6 +131,7 @@ export async function handleUploadRequest(request, gd, action, path) {
 	if (action === 'start') return uploadStart(request, gd, path);
 	if (action === 'chunk') return uploadChunk(request, gd);
 	if (action === 'status') return uploadStatus(request, gd);
+	if (action === 'cancel') return uploadCancel(request, gd);
 	return json({ error: 'Unknown upload action.' }, 400);
 }
 
@@ -212,18 +217,31 @@ async function uploadChunk(request, gd) {
 		return json({ error: 'The chunk would exceed the file size.' }, 400);
 	}
 
+	// A declared body length that disagrees with the query makes Google fail
+	// only after the whole body was transferred, so reject it up front. A
+	// request without the header (a proxied chunked body) is left alone.
+	const declaredHeader = request.headers.get('Content-Length');
+	if (declaredHeader !== null) {
+		const declared = Number(declaredHeader);
+		if (!Number.isFinite(declared) || declared !== length) {
+			return json({ error: 'The chunk length does not match its body.' }, 400);
+		}
+	}
+
 	// Stream the chunk straight through to the Drive session: the upstream
 	// PUT starts while the request body is still arriving, so the two network
-	// legs overlap. Drive accepts chunked transfer encoding for resumable
-	// uploads, so the declared length travels in the Content-Range header and
-	// Google validates the bytes it actually receives. Each request performs
+	// legs overlap. The declared length travels in Content-Range, and the
+	// upstream PUT also carries this chunk's exact Content-Length: Google's
+	// reference for resumable chunks sets it, and a body of known length can
+	// be forwarded as it arrives, while a body of unknown length has to be
+	// spooled somewhere before its size is known. Each request performs
 	// exactly one upstream subrequest, and no full chunk is ever buffered.
 	const contentRange = total === 0 ? 'bytes */0' : `bytes ${offset}-${offset + length - 1}/${total}`;
 	let response;
 	try {
 		response = await fetch(session.u, {
 			method: 'PUT',
-			headers: { 'Content-Range': contentRange },
+			headers: { 'Content-Range': contentRange, 'Content-Length': String(length) },
 			body: request.body
 		});
 	} catch {
@@ -251,6 +269,37 @@ async function uploadStatus(request, gd) {
 	return relayUploadResponse(response, session);
 }
 
+// Cancels an unfinished session. Drive's resumable protocol closes a session
+// when it receives DELETE on the session URL and answers 499 to every later
+// PUT or status query; an abandoned session would otherwise hold its partial
+// bytes for a week. Best effort: when Drive cannot confirm, the browser still
+// stops and Google expires the session on its own.
+async function uploadCancel(request, gd) {
+	if (request.method !== 'POST' && request.method !== 'DELETE') {
+		return json({ error: 'Use POST to cancel an upload.' }, 405);
+	}
+	const url = new URL(request.url);
+	const session = await openSession(url.searchParams.get('u') || '', gd.authConfig.settings.GOOGLE_CLIENT_SECRET);
+	if (!session) return json({ error: 'This upload is no longer known. Nothing is left to cancel.' }, 404);
+	let response;
+	try {
+		response = await fetch(session.u, {
+			method: 'DELETE',
+			signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined
+		});
+	} catch {
+		return json({ error: 'Google Drive could not be reached to close the upload. It expires on its own.', cancelled: false, retry: true }, 502);
+	}
+	// 499 is Drive's answer for a cancelled session; 404/410 mean it already
+	// expired on its own.
+	if (response.ok || response.status === 499) return json({ cancelled: true });
+	if (response.status === 404 || response.status === 410) return json({ cancelled: true, expired: true });
+	if (response.status === 401 || response.status === 403) {
+		return json({ error: 'Google Drive refused to close this upload session.', cancelled: false }, 502);
+	}
+	return json({ error: `Google Drive returned HTTP ${response.status} while closing the upload.`, cancelled: false, retry: true }, 502);
+}
+
 function relayUploadResponse(response, session) {
 	if (response.status === 308) {
 		const range = /^bytes=0-(\d+)$/.exec(response.headers.get('Range') || '');
@@ -267,6 +316,10 @@ function relayUploadResponse(response, session) {
 	}
 	if (response.status === 404 || response.status === 410) {
 		return json({ error: 'This upload session expired. Start the upload again.', restart: true }, 410);
+	}
+	// Drive answers 499 once a session was cancelled through DELETE.
+	if (response.status === 499) {
+		return json({ error: 'This upload was cancelled and cannot be continued. Start it again.', restart: true }, 410);
 	}
 	if (response.status === 429 || response.status === 403) {
 		return json({ error: 'Google Drive rate-limited this chunk. Wait a moment and retry.', retry: true }, 503);
