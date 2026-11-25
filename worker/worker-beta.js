@@ -2,6 +2,7 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readDriveRoot, readSettings, refreshGoogleToken } from './settings.mjs';
+import { handleUploadRequest, isAdminRequest } from './uploads.mjs';
 
 const googleMime = 'application/vnd.google-apps.';
 const officeMime = 'application/vnd.openxmlformats-officedocument.';
@@ -147,6 +148,15 @@ export default {
 };
 
 /**
+ * Model fields for the admin upload UI: the button exists only when uploads
+ * are configured, and only for requests already signed in as admin.
+ */
+async function uploadModelState(request) {
+	if (!authConfig.settings.ADMIN_PASSWORD) return { can_upload: false, is_admin: false };
+	return { can_upload: true, is_admin: await isAdminRequest(request, authConfig.settings) };
+}
+
+/**
  * Fetch and log a request
  * @param {Request} request
  */
@@ -189,24 +199,25 @@ async function handleRequest(request) {
 		} else {
 			return redirectToIndexPage()
 		}
-		// basic auth
-		const denied = gd.basicAuthResponse(request);
-		if (denied) return denied;
-		await gd.initRootType();
-		const command = match.groups.command;
-		// search for
-		if (command === 'search') {
-			if (request.method === 'POST') {
-				// search results
-				return handleSearch(request, gd);
-			} else {
-				const params = url.searchParams;
-				// Search page
-				return new Response(html(gd.order, {
-					q: params.get("q") || '',
-					is_search_page: true,
-					root_type: gd.root_type
-				}), {
+			// basic auth
+			const denied = await gd.basicAuthResponse(request);
+			if (denied) return denied;
+			await gd.initRootType();
+			const command = match.groups.command;
+			// search for
+			if (command === 'search') {
+				if (request.method === 'POST') {
+					// search results
+					return handleSearch(request, gd);
+				} else {
+					const params = url.searchParams;
+					// Search page
+					return new Response(html(gd.order, {
+						q: params.get("q") || '',
+						is_search_page: true,
+						root_type: gd.root_type,
+						...(await uploadModelState(request))
+					}), {
 					status: 200,
 					headers: {
 						'Content-Type': 'text/html; charset=utf-8'
@@ -238,7 +249,7 @@ async function handleRequest(request) {
 	path = path.replace(gd.url_path_prefix, '') || '/';
 	const servesIndex = request.method === 'POST' || path.endsWith('/') || url.searchParams.has('a');
 	if (servesIndex || gd.root.protect_file_link) {
-		const denied = gd.basicAuthResponse(request);
+		const denied = await gd.basicAuthResponse(request);
 		if (denied) return denied;
 	}
 
@@ -248,6 +259,12 @@ async function handleRequest(request) {
 	}
 
 	await gd.initRootType();
+
+	// Admin uploads: ?upload=start|chunk|status|whoami, guarded by the admin
+	// credentials before any Drive request is made.
+	const uploadAction = url.searchParams.get('upload');
+	if (uploadAction) return handleUploadRequest(request, gd, uploadAction, path);
+
 	if (path.endsWith('/') && url.searchParams.get('download') === 'links') {
 		if (request.method !== 'GET' && request.method !== 'HEAD') {
 			return new Response('Method not allowed.', { status: 405, headers: { Allow: 'GET, HEAD' } });
@@ -256,7 +273,7 @@ async function handleRequest(request) {
 	}
 	if (request.method === 'POST') return apiRequest(request, gd);
 	if (servesIndex) {
-		return new Response(html(gd.order, { root_type: gd.root_type }), {
+		return new Response(html(gd.order, { root_type: gd.root_type, ...(await uploadModelState(request)) }), {
 			headers: { 'Content-Type': 'text/html; charset=utf-8' }
 		});
 	}
@@ -455,10 +472,12 @@ class googleDrive {
 
 	/**
 	 * Returns a response that requires authorization, or null
+	 * Admin credentials always allow browsing; browse-only credentials do not
+	 * unlock uploads (those check the admin pair separately).
 	 * @param request
-	 * @returns {Response|null}
+	 * @returns {Promise<Response|null>}
 	 */
-	basicAuthResponse(request) {
+	async basicAuthResponse(request) {
 		if (authConfig.settings.INDEX_PUBLIC === 'true') return null;
 
 		const { user, pass } = this.root;
@@ -468,6 +487,7 @@ class googleDrive {
 				const bytes = Uint8Array.from(atob(match[1]), char => char.charCodeAt(0));
 				if (new TextDecoder().decode(bytes) === `${user}:${pass}`) return null;
 			} catch {}
+			if (await isAdminRequest(request, authConfig.settings)) return null;
 		}
 		return new Response('Unauthorized', {
 			headers: { 'WWW-Authenticate': 'Basic realm="Drive Index", charset="UTF-8"' },
