@@ -12,6 +12,11 @@ const officeMime = 'application/vnd.openxmlformats-officedocument.';
 // once; this bounds how long a change made in Google Drive itself goes
 // unnoticed by a Worker instance.
 const CACHE_TTL = 30 * 1000;
+// How many listing pages a folder-size walk may read before it gives up and
+// leaves the remaining folders showing a dash. Bounded so a huge Drive can
+// never hang a listing: the walk reads subfolders 50 at a time, so the
+// budget covers up to this many thousand entries below the listed folders.
+const FOLDER_SIZE_PAGE_BUDGET = 40;
 const exportsByType = new Map([
 	['document', [officeMime + 'wordprocessingml.document', '.docx']],
 	['spreadsheet', [officeMime + 'spreadsheetml.sheet', '.xlsx']],
@@ -480,6 +485,7 @@ class googleDrive {
 		if (this.rootFolderId) this.id_path_cache[this.rootFolderId] = '/';
 		this.files = {};
 		this.path_children_cache = {};
+		this.folder_size_cache = {};
 		this.passwords = {};
 		this.storageCache = null;
 		this.cachedAt = Date.now();
@@ -710,6 +716,11 @@ class googleDrive {
 			// { <path> :[ {nextPageToken:'',data:{}}, {nextPageToken:'',data:{}} ...], ...}
 			this.path_children_cache = {};
 		}
+		if (this.folder_size_cache == undefined) {
+			// { <folderId>: <bytes|null> } — the recursive total of every file
+			// inside the folder, which Drive itself never reports.
+			this.folder_size_cache = {};
+		}
 
 		// An admin's listing carries extra fields, and a different ordering is
 		// a different listing, so both are kept apart in the cache.
@@ -733,6 +744,16 @@ class googleDrive {
 		if (!id) return { nextPageToken: null, curPageIndex: page_index, data: { files: [] } };
 		let result = await this._ls(id, page_token, page_index, manage, sort);
 		let data = result.data;
+		// Folders carry the recursive total of their contents, so the size
+		// column shows a number instead of a placeholder dash. Cached pages
+		// already carry it, so repeat views cost nothing extra.
+		if (data.files?.some(file => file.mimeType === folderMimeType && file.size === undefined)) {
+			try {
+				await this._attachFolderSizes(data.files);
+			} catch {
+				// A failed walk leaves the dash in place; the listing itself still renders.
+			}
+		}
 		// Cache every page: repeat visits to a folder, and the row thumbnails
 		// that follow, then read the listing from memory instead of Drive.
 		if (data.files) {
@@ -796,6 +817,90 @@ class googleDrive {
 
 	}
 
+	/**
+	 * Gives every folder entry in a listing a `size`: the recursive total of
+	 * the files it holds. Drive reports no size for folders, so the totals
+	 * are summed by walking each folder's subtree, querying up to 50
+	 * subfolders per request the way the link list does. Results are cached
+	 * per folder id for the listing cache's lifetime; a walk that exceeds
+	 * FOLDER_SIZE_PAGE_BUDGET caches null for the unmeasured folders so the
+	 * dash stays until the cache turns over.
+	 * @param {Array<{id: string, mimeType: string, size?: string|number}>} files
+	 */
+	async _attachFolderSizes(files) {
+		const folders = files.filter(file => file.mimeType === folderMimeType);
+		const pending = folders.filter(file => this.folder_size_cache[file.id] === undefined);
+		if (!pending.length) {
+			for (const folder of folders) folder.size = this.folder_size_cache[folder.id];
+			return;
+		}
+
+		const owner = new Map(pending.map(folder => [folder.id, folder.id]));
+		const queue = [...owner.keys()];
+		const totals = new Map(pending.map(folder => [folder.id, 0]));
+		let pages = 0;
+		let offset = 0;
+
+		let complete = true;
+		while (offset < queue.length) {
+			if (pages >= FOLDER_SIZE_PAGE_BUDGET) {
+				complete = false;
+				break;
+			}
+			// Query up to 50 subfolders together to stay within Workers Free subrequest limits.
+			const batch = queue.slice(offset, offset + 50);
+			offset += batch.length;
+			const parents = batch.map(id => `'${driveQueryValue(id)}' in parents`).join(' or ');
+			const params = {
+				...this.fileListParams(),
+				q: `(${parents}) and trashed = false and name != '.password'`,
+				fields: 'nextPageToken,files(id,name,parents,mimeType,size)',
+				orderBy: 'name',
+				pageSize: 1000
+			};
+			let pageToken;
+			do {
+				pages++;
+				if (pageToken) params.pageToken = pageToken;
+				const response = await fetch('https://www.googleapis.com/drive/v3/files?' + this.enQuery(params), await this.requestOption());
+				if (!response.ok) throw new Error(`Drive folder size walk failed (HTTP ${response.status}).`);
+				const listing = await response.json();
+				for (const file of listing.files || []) {
+					if (file.name?.toLowerCase() === '.password') continue;
+					// Each item counts towards the listed folder that owns it;
+					// a subfolder inherits its owner so its contents do too.
+					const root = owner.get(file.parents?.[0]);
+					if (root === undefined) continue;
+					if (file.mimeType === folderMimeType) {
+						owner.set(file.id, root);
+						queue.push(file.id);
+					} else {
+						totals.set(root, totals.get(root) + (Number(file.size) || 0));
+					}
+				}
+				pageToken = listing.nextPageToken;
+				if (pageToken && pages >= FOLDER_SIZE_PAGE_BUDGET) {
+					complete = false;
+					break;
+				}
+			} while (pageToken);
+			if (!complete) break;
+		}
+
+		// A walk cut short by the budget may have read only part of a subtree;
+		// a partial total would read as a real size, so those folders cache
+		// null and keep showing the dash until the cache turns over.
+		for (const folder of pending) {
+			this.folder_size_cache[folder.id] = complete ? totals.get(folder.id) : null;
+		}
+		for (const folder of folders) folder.size = this.folder_size_cache[folder.id];
+	}
+
+	/**
+	 * Reads a folder's .password file, if one exists, and caches the result.
+	 * @param {string} path
+	 * @returns {Promise<string|null>}
+	 */
 	async password(path) {
 		this.expireCaches();
 		if (this.passwords[path] !== undefined) {
