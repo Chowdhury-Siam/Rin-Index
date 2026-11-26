@@ -999,7 +999,9 @@ svg.icon {
 }
 
 .row-main.is-folder .icon-file {
-	color: var(--accent-text);
+	/* One step brighter than file icons, still in the site's grey scale —
+	 * the old accent white read as a foreign, much heavier glyph. */
+	color: var(--text-2);
 }
 
 /* A Drive thumbnail render in place of the kind icon; fixed box so a
