@@ -18,7 +18,7 @@
 
 ## Meet Rin Index
 
-Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Cloudflare Workers Free. Google Drive remains the file source. The Worker reads the selected files using Google’s read-only Drive permission.
+Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Cloudflare Workers Free. Google Drive remains the file source. Browsing and downloading need only Google’s read-only Drive permission; uploads and file management are optional and use the full Drive scope.
 
 ## Features
 
@@ -31,8 +31,11 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
 | **Save links (.txt)** | Save one direct file URL per line for a mirror or leech bot’s bulk mode. |
 | **Copy URL** | Copy the direct download URL of any file, including files in nested folders. |
-| **Upload** | Sign in as an admin and upload files into any open folder, with a progress popup showing speed and time remaining. |
+| **Admin sign-in** | Sign in once with the lock icon and stay signed in for eight hours; the password is never kept in the page. |
+| **Upload** | As the admin, upload files, whole folders, or dropped items into the open folder, with a floating panel showing speed and time remaining for every batch. |
 | **Pause / resume / cancel** | Pause an upload and keep its Google Drive session, resume from the byte Drive confirmed, or cancel and close the session — per file or for the whole batch. |
+| **Manage files** | Create folders, rename, move, and delete items right from the listing — one at a time or several at once. |
+| **Storage** | See how full the Google account behind the index is, from Google Drive’s own quota. |
 | **Themes** | A compact light and dark interface that follows the system setting and remembers your choice. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
@@ -51,15 +54,27 @@ Every file row has a **Copy URL** button beside the download button. It copies t
 
 ### Upload files to a folder
 
-Set the `ADMIN_PASSWORD` repository secret to turn on uploads. On a folder page, an admin then sees an **Upload** button (or an **Admin** sign-in dialog on a public index) and can pick one or more files from a phone or PC. Files upload directly into the folder that is open, including nested folders. A centered popup opens as soon as an upload starts and fits phones and desktops: each file shows its name, progress bar, percentage, bytes uploaded out of the total, current speed in MB/s, and estimated time remaining, and multiple files also get a whole-batch progress line. Speed and time remaining are calculated from the bytes Google Drive actually confirmed, so retries never inflate them. When an upload is interrupted, the popup shows the retry, the browser asks Drive how much it received, and the same session resumes from that byte instead of creating a duplicate file. The listing refreshes after a successful batch.
+Set the `ADMIN_PASSWORD` repository secret to turn on admin access. Visitors see only a small lock icon in the top bar; the admin signs in there once with the `ADMIN_USERNAME` and `ADMIN_PASSWORD` pair and stays signed in for eight hours — the sign-in sets an HttpOnly session cookie, so the password itself is never stored in the page, and changing the password ends every session at once. While signed in, a folder page offers a **New** button with three ways to add files: **Upload files** picks one or more files from a phone or PC, **Upload folder** picks a whole directory with its subfolders (folders are created level by level before their files are sent), and dropping files or folders anywhere on the file panel uploads them the same way.
+
+Uploads run in one floating panel at the corner of the page, which folds into a small dock when you want the page back and keeps several batches side by side: each file shows its name, progress bar, percentage, bytes uploaded out of the total, current speed in MB/s, and estimated time remaining, and each batch also gets a whole-batch progress line. Speed and time remaining are calculated from the bytes Google Drive actually confirmed, so retries never inflate them. When an upload is interrupted, the panel shows the retry, the browser asks Drive how much it received, and the same session resumes from that byte instead of creating a duplicate file. The listing refreshes after a successful batch.
 
 Every file also has its own controls, and the batch footer has **Pause all**, **Resume all**, and **Cancel remaining**:
 
-- **Pause** stops sending chunks immediately and keeps the Google Drive upload session. The row shows **Paused** with the byte Drive confirmed and no time estimate until it resumes. Minimizing the popup keeps the upload running behind a small floating pill.
+- **Pause** stops sending chunks immediately and keeps the Google Drive upload session. The row shows **Paused** with the byte Drive confirmed and no time estimate until it resumes. Folding the panel into its dock keeps the upload running behind the small pill.
 - **Resume** asks Drive for the byte it confirmed and continues exactly from there. If a chunk was cut off mid-transfer, only the unconfirmed part is sent again — the file is never restarted and no duplicate is created. A connection drop parks the file as **Paused** with the reason, and it resumes by itself when the browser comes back online; pressing Resume works too.
 - **Cancel** stops the transfer and the automatic retries, and asks the Worker to close the unfinished Drive session (Drive answers 499 and discards the partial bytes; an abandoned session would otherwise linger for about a week). Files that already finished uploading are kept. After the batch settles, **Copy report** puts a plain-text summary on the clipboard, including how much time was spent sending bytes versus waiting for Drive to confirm them.
 
-Every upload request is checked against the admin credentials on the server before Google Drive is contacted. Public visitors and users with only the browse password can never upload. Uploads use Google Drive’s resumable upload API in chunks that start at 16 MB and double as the transfer proves reliable, up to 95 MB — the largest multiple of Drive’s 256 KB unit below the 100 MB request-body limit of Cloudflare Free and Pro zones, so a request can never be refused with 413. The Worker streams each chunk straight through to Drive while it is still arriving from the browser and declares the chunk’s exact `Content-Length` on the upstream request, so the browser→Cloudflare and Cloudflare→Drive legs overlap instead of running back to back. In Rin Index’s emulated measurements on a 7.5 MB/s line, that pipeline plus the larger chunks reaches about 6.8–7.0 MB/s where the previous buffered release measured about 3.8 MB/s and a request of undeclared length would fall back to about 4 MB/s. The real path can differ, so the popup shows the same split live — a line like “sending 91% · waiting for Google Drive 9%” tells you whether your own connection, the pauses between chunks, or Drive’s ingest is the limit. The Worker never holds a whole file in memory, each request performs a single subrequest, and uploads create a new Drive file each time without overwriting existing files.
+Every upload request is checked against the admin credentials on the server before Google Drive is contacted. Public visitors and users with only the browse password can never upload. Uploads use Google Drive’s resumable upload API in chunks that start at 16 MB and double as the transfer proves reliable, up to 95 MB — the largest multiple of Drive’s 256 KB unit below the 100 MB request-body limit of Cloudflare Free and Pro zones, so a request can never be refused with 413. The Worker streams each chunk straight through to Drive while it is still arriving from the browser and declares the chunk’s exact `Content-Length` on the upstream request, so the browser→Cloudflare and Cloudflare→Drive legs overlap instead of running back to back. In Rin Index’s emulated measurements on a 7.5 MB/s line, that pipeline plus the larger chunks reaches about 6.8–7.0 MB/s where the previous buffered release measured about 3.8 MB/s and a request of undeclared length would fall back to about 4 MB/s. The real path can differ, so the panel shows the same split live — a line like “sending 91% · waiting for Google Drive 9%” tells you whether your own connection, the pauses between chunks, or Drive’s ingest is the limit. The Worker never holds a whole file in memory, each request performs a single subrequest, and uploads create a new Drive file each time without overwriting existing files.
+
+### Manage files and folders
+
+While signed in as the admin, every folder page works as a small file manager. The **New** button creates a folder; each row has a three-dot menu with **Rename**, **Move to…**, and **Delete**; and the checkboxes build a selection of many items at once, with a toolbar that offers the same actions for everything selected. Actions are also available from search results — Rin Index asks Drive where the item lives before acting on it. The move dialog is a folder picker that walks the index with breadcrumbs and can create a new folder inside the destination without leaving it, and it refuses to move a folder into itself.
+
+Rin Index keeps Drive’s safety rails. Deleting moves items to Google Drive’s trash, where they can be restored for 30 days, and trashed files keep counting against the storage quota. A rename or move is refused when the destination already holds an item with that name, because the index opens files by path and two items with one name could not both be reached. Large selections are sent in groups of twelve, the largest batch that stays well inside Cloudflare Workers Free subrequest limits, and a summary names anything Drive refused. Google Drive states per item what the account may do; when an item is shared read-only, its menu hides the actions Drive would refuse anyway. Every management request is checked against the admin session before Google Drive is contacted, and the read-only `drive.readonly` scope cannot manage files — reauthorize with the full `drive` scope to use this.
+
+### Storage summary
+
+On a folder page the admin also sees a storage card between the page head and the files: how full the account is, with used, available, total, in Drive, and in trash, exactly as Google Drive reports it. The figures refresh after each upload, delete, or move, and the card’s refresh button asks Drive for the current quota. Values Drive does not report (for example, no limit) stay blank rather than estimated; the card is never shown to visitors.
 
 ## Deploy
 
@@ -74,7 +89,7 @@ Every upload request is checked against the admin credentials on the server befo
    ```
 
 4. Click **Create** and save the client ID and client secret. Open [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/), click the gear icon, and select **Use your own OAuth credentials**. Enter both values. Keep the flow **Server-side** and the access type **Offline**.
-5. In **Step 1**, paste the scope below into **Input your own scopes**. Click **Authorize APIs**, sign in with the account that can open the folder, and grant access. Use the first scope for browsing only, or the second scope if you also enable uploads.
+5. In **Step 1**, paste the scope below into **Input your own scopes**. Click **Authorize APIs**, sign in with the account that can open the folder, and grant access. Use the first scope for browsing only, or the second scope if you also enable uploads or file management.
 
    ```text
    https://www.googleapis.com/auth/drive.readonly
@@ -86,9 +101,9 @@ Every upload request is checked against the admin credentials on the server befo
 > [!NOTE]
 > Google expires Drive refresh tokens after seven days while an **External** OAuth app is in **Testing**. If you later change the app’s publishing status, generate a fresh token and update the GitHub secret. [Google’s refresh token rules](https://developers.google.com/identity/protocols/oauth2#expiration)
 
-### Give the account write access for uploads
+### Give the account write access for uploads and file management
 
-The `drive.readonly` scope can browse and download but not create files. To reauthorize an existing read-only setup for uploads, repeat the Playground steps above with `https://www.googleapis.com/auth/drive` as the scope, then replace the `GOOGLE_REFRESH_TOKEN` secret with the new token. The deploy script accepts either scope and refuses to deploy uploads with a read-only token.
+The `drive.readonly` scope can browse and download but not create, rename, move, or trash files. To reauthorize an existing read-only setup for admin access, repeat the Playground steps above with `https://www.googleapis.com/auth/drive` as the scope, then replace the `GOOGLE_REFRESH_TOKEN` secret with the new token. The deploy script accepts either scope and refuses to deploy admin features with a read-only token.
 
 The full `drive` scope is the narrowest scope that works for uploading into folders that already exist. The smaller `drive.file` scope only covers files an app created itself or received through the Google Picker, so it cannot create files inside the indexed folder tree. The Google account must also have edit permission on the destination folder; a share link with viewer access is not enough. [Google Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 
@@ -125,8 +140,8 @@ If your mirror bot uploads to a fixed folder and sends links like `/0:/file.zip`
 | `INDEX_USERNAME` | `viewer` | Set the username for password-protected browsing. |
 | `INDEX_PUBLIC` | Automatic | The index is public with no password. Set this to `true` to allow public browsing with a password configured. |
 | `PROTECT_FILE_LINK` | `false` | Set to `true` with an index password to require sign-in for direct downloads. |
-| `ADMIN_PASSWORD` | Unset | Set to enable admin uploads. Must be paired with a `GOOGLE_REFRESH_TOKEN` for the `drive` scope. |
-| `ADMIN_USERNAME` | `admin` | Set the username for admin uploads. |
+| `ADMIN_PASSWORD` | Unset | Set to enable admin uploads and file management. Must be paired with a `GOOGLE_REFRESH_TOKEN` for the `drive` scope. |
+| `ADMIN_USERNAME` | `admin` | Set the username for admin sign-in. |
 
 > [!TIP]
 > Direct download URLs work without a password by default. Turn on `PROTECT_FILE_LINK` if you want the index password to cover downloads as well.
@@ -161,14 +176,16 @@ After editing a repository secret, start a fresh run with **Actions → Deploy R
 | **Search is missing** | Search is available for My Drive and Shared Drive roots. Use breadcrumbs to browse a selected subfolder. |
 | **Uploads are not configured** | Add the `ADMIN_PASSWORD` repository secret and start a fresh workflow run. |
 | **Uploads need the full Drive scope** | Reauthorize through the OAuth Playground with `https://www.googleapis.com/auth/drive` and update `GOOGLE_REFRESH_TOKEN`, or remove `ADMIN_PASSWORD`. |
+| **“This Google sign-in behind this index has read-only access”** | Management needs the full `drive` scope. Reauthorize with the Playground and replace `GOOGLE_REFRESH_TOKEN`, or keep admin features off. |
+| **“An item named … already exists here”** | Rin Index opens files by path, so two items cannot share one name in a folder. Pick a different name. |
 | **This Google account cannot create files in that folder** | The authorizing account needs edit permission on the destination folder. Ask the owner for editor access. |
-| **Admin sign-in failed** | Check the `ADMIN_USERNAME` and `ADMIN_PASSWORD` secrets. On a private index, signing in to browse with the admin pair also shows the Upload button. |
+| **Admin sign-in failed** | Check the `ADMIN_USERNAME` and `ADMIN_PASSWORD` secrets, and sign in through the lock icon in the top bar. On a private index, signing in to browse with the admin pair also unlocks the admin features. |
 | **This upload session expired** | Drive sessions last about a week. Start the upload again; a fresh upload creates a new file rather than overwriting. |
 | **An upload is “Paused” with “connection kept failing”** | The line dropped mid-transfer. The file is kept with its Drive session; press **Resume** once you are back online, or just reconnect and it resumes by itself. |
 | **“Cancelled” but the note says Drive could not confirm the session was closed** | The cancel still stopped the transfer. Google expires an abandoned session on its own after about a week. |
-| **Uploads run slower than my line** | Open the popup’s “sending / waiting” line: a large waiting share means the time goes to Drive’s confirmations between chunks, not to your connection. Larger chunks (already automatic) and parallel files reduce it; a waiting share near half with a small sending share points at the Cloudflare→Drive leg itself. |
+| **Uploads run slower than my line** | Open the panel’s “sending / waiting” line: a large waiting share means the time goes to Drive’s confirmations between chunks, not to your connection. Larger chunks (already automatic) and parallel files reduce it; a waiting share near half with a small sending share points at the Cloudflare→Drive leg itself. |
 
 ## Credits
 
-Rin Index’s interface and documentation take their visual cues from [Yutaka](https://github.com/Chowdhury-Siam/Yutaka); the current compact layout follows flat-interface conventions popularized by [z.ai](https://z.ai), rebuilt with Rin’s own forest-green palette, Bricolage Grotesque type ([SIL OFL](public/assets/fonts/OFL.txt)), and a hand-drawn stroke icon set. The Drive Worker builds on [Bhadoo Drive Index](https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index) by Parveen Bhadoo and TheFirstSpeedster, with earlier work from [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex).
+Rin Index’s interface and documentation take their visual cues from [Yutaka](https://github.com/Chowdhury-Siam/Yutaka); the current compact layout follows flat-interface conventions popularized by [z.ai](https://z.ai), rebuilt with Rin’s own crimson-and-burgundy palette, Bricolage Grotesque type ([SIL OFL](public/assets/fonts/OFL.txt)), and a hand-drawn stroke icon set. The Drive Worker builds on [Bhadoo Drive Index](https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index) by Parveen Bhadoo and TheFirstSpeedster, with earlier work from [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex).
 
