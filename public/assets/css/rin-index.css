@@ -180,7 +180,7 @@ svg.icon {
 	flex: none;
 	width: 76px;
 	height: 100vh;
-	padding: var(--s3) 0;
+	padding: var(--s3) 0 var(--s4);
 	background: var(--page);
 }
 
@@ -240,7 +240,7 @@ svg.icon {
 }
 
 .rail-avatar {
-	margin-top: var(--s2);
+	margin-top: 0;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--r-full);
 	color: var(--text-2);
@@ -259,10 +259,10 @@ svg.icon {
 }
 
 #main {
+	/* Fluid like a file manager: the column starts under the header's
+	 * title and runs to the viewport's right edge. */
 	width: 100%;
-	max-width: 1040px;
-	margin: 0 auto;
-	padding: 0 var(--s5) 96px;
+	padding: 0 var(--s4) 96px;
 }
 
 .topbar {
@@ -273,9 +273,10 @@ svg.icon {
 	align-items: center;
 	gap: var(--s3);
 	min-height: 56px;
-	/* The title lines up with the content column below, whatever the width. */
-	padding: var(--s2) max(var(--s5), calc((100vw - 1116px) / 2 + var(--s5)));
-	border-bottom: 1px solid var(--border);
+	/* The title rides the header's left edge, and the content below shares
+	 * its origin, so the bar reads as one full-width band. */
+	padding: var(--s2) var(--s4);
+	border-bottom: 1px solid var(--border-strong);
 	border-radius: var(--r-lg) 0 0 0;
 	background: var(--surface);
 }
@@ -309,11 +310,15 @@ svg.icon {
 	height: 18px;
 }
 
+/* The bottom pair is grouped away from the top navigation group. */
+.source-link {
+	margin-bottom: var(--s2);
+}
+
 /* ------------------------------------------------------------ page head --- */
 
 .pagehead {
 	margin: var(--s5) 0 var(--s3);
-	max-width: 960px;
 }
 
 .crumbs {
@@ -439,17 +444,18 @@ svg.icon {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-	padding: 3px 6px 3px 10px;
-	border: 1px solid var(--accent);
+	height: 26px;
+	padding: 0 8px 0 12px;
+	border: 1px solid var(--control-border);
 	border-radius: var(--r-full);
-	background: var(--accent-subtle);
-	color: var(--accent-text);
-	font: 600 0.75rem/1.2 var(--font-ui);
+	background: #2e2e2e;
+	color: var(--text);
+	font: 500 0.8125rem/1 var(--font-ui);
 	cursor: pointer;
 }
 
 .search-chip:hover {
-	color: var(--text);
+	background: #363636;
 }
 
 .search-chip svg.icon {
@@ -472,7 +478,7 @@ svg.icon {
 
 .storage-head {
 	display: flex;
-	align-items: baseline;
+	align-items: center;
 	gap: var(--s2);
 }
 
@@ -513,10 +519,14 @@ svg.icon {
 .storage .bar {
 	height: 6px;
 	margin-top: var(--s2);
+	border-radius: var(--r-full);
 	background: #2e2e2e;
 }
 
 .storage .bar-fill {
+	/* Even a sliver of use shows as a visible pill, never a stray dot. */
+	min-width: 6px;
+	border-radius: var(--r-full);
 	background: var(--text);
 }
 
@@ -561,7 +571,7 @@ svg.icon {
 .storage-refresh {
 	position: absolute;
 	top: 6px;
-	right: var(--s2);
+	right: var(--s3);
 }
 
 /* --------------------------------------------------------------- panel --- */
@@ -799,7 +809,7 @@ svg.icon {
 .file-list {
 	list-style: none;
 	margin: 0;
-	padding: var(--s1) 0;
+	padding: var(--s1) 0 var(--s2);
 }
 
 .row {
@@ -880,6 +890,12 @@ svg.icon {
 	color: var(--text);
 }
 
+/* The Name label sits over the row's text, which is indented by the row's
+ * kind icon, so the label carries the same indent. */
+.head-sort[data-key='name'] {
+	padding-left: 27px;
+}
+
 /* Filter chips and the sort menu button above the list. */
 .list-controls {
 	display: flex;
@@ -896,25 +912,26 @@ svg.icon {
 }
 
 .filter-chip {
-	padding: 4px 10px;
-	border: 1px solid var(--border);
+	height: 28px;
+	padding: 0 12px;
+	border: 1px solid transparent;
 	border-radius: var(--r-full);
-	background: none;
-	color: var(--text-3);
-	font: 600 0.75rem/1.2 var(--font-ui);
+	background: #232323;
+	color: var(--text-2);
+	font: 500 0.8125rem/1 var(--font-ui);
 	cursor: pointer;
 	transition: color var(--speed) var(--ease), border-color var(--speed) var(--ease), background var(--speed) var(--ease);
 }
 
 .filter-chip:hover {
 	color: var(--text);
-	border-color: var(--border-strong);
+	background: #2a2a2a;
 }
 
 .filter-chip.is-active {
-	color: var(--accent-text);
-	border-color: var(--accent);
-	background: var(--accent-subtle);
+	background: #2e2e2e;
+	border-color: var(--control-border);
+	color: var(--text);
 }
 
 .filter-chip:focus-visible,
