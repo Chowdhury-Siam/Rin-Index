@@ -106,6 +106,49 @@ function driveQueryValue(value) {
 	return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
 
+// A listing's ordering, from the sort key and direction the page sends.
+// Anything unexpected falls back to the historic default ordering.
+function listingOrderBy(sort, dir) {
+	if (sort === 'size') return 'folder,size' + (dir === 'asc' ? '' : ' desc');
+	if (sort === 'modifiedTime') return 'folder,modifiedTime' + (dir === 'asc' ? '' : ' desc');
+	if (sort === 'name') return 'folder,name' + (dir === 'desc' ? ' desc' : '');
+	return null;
+}
+
+// Search words the page may carry: type: and size: filters ride the same
+// Drive query the plain keywords do, so one search stays one request.
+const SEARCH_TYPES = {
+	video: "mimeType contains 'video/'",
+	image: "mimeType contains 'image/'",
+	audio: "mimeType contains 'audio/'",
+	pdf: "mimeType = 'application/pdf'",
+	folder: "mimeType = 'application/vnd.google-apps.folder'",
+	doc: "(mimeType contains 'document' or mimeType = 'application/pdf')"
+};
+const SIZE_UNITS = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 };
+
+function parseSearchQuery(raw) {
+	const filters = { mime: [], size: [] };
+	const words = [];
+	for (const token of String(raw || '').split(/\s+/).filter(Boolean)) {
+		const type = /^type:([a-z]+)$/i.exec(token);
+		if (type && SEARCH_TYPES[type[1].toLowerCase()]) {
+			filters.mime.push(SEARCH_TYPES[type[1].toLowerCase()]);
+			continue;
+		}
+		const size = /^size:([<>])([\d.]+)(b|kb|mb|gb|tb)?$/i.exec(token);
+		if (size) {
+			const bytes = Math.round(Number(size[2]) * (SIZE_UNITS[(size[3] || 'mb').toLowerCase()] || 1));
+			if (Number.isFinite(bytes) && bytes >= 0) {
+				filters.size.push('size ' + size[1] + ' ' + bytes);
+				continue;
+			}
+		}
+		words.push(token);
+	}
+	return { filters, words };
+}
+
 function encodeDownloadFilename(name) {
 	return encodeURIComponent(name).replace(/[!'()*]/g, char =>
 		'%' + char.charCodeAt(0).toString(16).toUpperCase()
@@ -120,7 +163,7 @@ function html(order, model) {
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="theme-color" content="#0c090b">
+	<meta name="theme-color" content="#0d0d0d">
 	<meta name="robots" content="noindex">
 	<title>${title.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
 	<link rel="icon" href="/assets/rin-mark.png" type="image/png">
@@ -144,7 +187,11 @@ export default {
 		}
 		try {
 			const response = await handleRequest(request);
-			response.headers.set('Cache-Control', 'private, no-store');
+			// Everything the index serves is private by default; a route that
+			// states its own caching (the thumbnail proxy) keeps its word.
+			if (!response.headers.has('Cache-Control')) {
+				response.headers.set('Cache-Control', 'private, no-store');
+			}
 			response.headers.set('X-Content-Type-Options', 'nosniff');
 			return response;
 		} catch (error) {
@@ -286,6 +333,13 @@ async function handleRequest(request) {
 
 	await gd.initRootType();
 
+	// A row thumbnail: the same path a direct download uses, answered with a
+	// small render of the image that Drive already made, and the same access
+	// rules as that download.
+	if (url.searchParams.get('thumb') === '1' && request.method === 'GET' && !path.endsWith('/')) {
+		return gd.thumbnail(path);
+	}
+
 	// Admin uploads: ?upload=start|chunk|status|cancel|whoami, guarded by the
 	// admin credentials before any Drive request is made.
 	if (uploadAction) return handleUploadRequest(request, gd, uploadAction, path);
@@ -327,9 +381,11 @@ async function apiRequest(request, gd) {
 	if (path.substr(-1) == '/') {
 		let form = await request.formData();
 		// This can increase the speed when listing directories for the first time. The disadvantage is that if the password verification fails, the overhead of listing directories will still be incurred
-		// An admin's listing also says what may be done with each item.
+		// An admin's listing also says what may be done with each item. The
+		// page may ask for an ordering; unknown values keep the default.
 		const manage = await isAdminRequest(request, authConfig.settings);
-		let deferred_list_result = gd.list(path, form.get('page_token'), Number(form.get('page_index')), manage);
+		const sort = listingOrderBy(form.get('sort'), form.get('dir'));
+		let deferred_list_result = gd.list(path, form.get('page_token'), Number(form.get('page_index')), manage, sort);
 
 		// check .password file, if `enable_password_file_verify` is true
 		if (authConfig['enable_password_file_verify']) {
@@ -558,6 +614,27 @@ class googleDrive {
 		});
 	}
 
+	// A small render of an image file, fetched through Drive's own
+	// thumbnailLink so the OAuth token never appears in the page. The listing
+	// cache usually already holds the link, so each thumbnail is one upstream
+	// request; the bytes pass straight through without buffering.
+	async thumbnail(filePath) {
+		this.expireCaches();
+		const name = decodeURIComponent(filePath.split('/').pop());
+		const folder = filePath.slice(0, filePath.lastIndexOf('/') + 1) || '/';
+		const listing = await this.list(folder);
+		const file = (listing?.data?.files || []).find(item => item.name === name && item.thumbnailLink);
+		if (!file) return new Response('No thumbnail for this file.', { status: 404 });
+		const upstream = await fetch(file.thumbnailLink, await this.requestOption());
+		const headers = new Headers();
+		headers.set('Content-Type', upstream.headers.get('Content-Type') || 'image/jpeg');
+		// An edge may keep a copy only when the same thumbnail is public to
+		// anyone; protected indexes keep the render in the browser alone.
+		const shareable = authConfig.settings.INDEX_PUBLIC === 'true' && !this.root.protect_file_link;
+		headers.set('Cache-Control', (shareable ? 'public' : 'private') + ', max-age=21600');
+		return new Response(upstream.body, { status: upstream.status, headers });
+	}
+
 	async down(file, range, inline) {
 		const url = new URL(`https://www.googleapis.com/drive/v3/files/${file.id}`);
 		let fileName = file.name;
@@ -627,16 +704,18 @@ class googleDrive {
 	}
 
 	// Cache through reqeust cache
-	async list(path, page_token = null, page_index = 0, manage = false) {
+	async list(path, page_token = null, page_index = 0, manage = false, sort = null) {
 		this.expireCaches();
 		if (this.path_children_cache == undefined) {
 			// { <path> :[ {nextPageToken:'',data:{}}, {nextPageToken:'',data:{}} ...], ...}
 			this.path_children_cache = {};
 		}
 
-		// An admin's listing carries extra fields, so it is kept apart from
-		// the listing everyone else is served.
-		const cachePath = manage ? path + '?manage' : path;
+		// An admin's listing carries extra fields, and a different ordering is
+		// a different listing, so both are kept apart in the cache.
+		const cachePath = path
+			+ (manage ? '?manage' : '')
+			+ (sort ? (manage ? '&' : '?') + 'sort=' + encodeURIComponent(sort) : '');
 
 		if (this.path_children_cache[cachePath] &&
 			this.path_children_cache[cachePath][page_index] &&
@@ -652,10 +731,11 @@ class googleDrive {
 
 		let id = await this.findPathId(path);
 		if (!id) return { nextPageToken: null, curPageIndex: page_index, data: { files: [] } };
-		let result = await this._ls(id, page_token, page_index, manage);
+		let result = await this._ls(id, page_token, page_index, manage, sort);
 		let data = result.data;
-		// Cache multiple pages
-		if (result.nextPageToken && data.files) {
+		// Cache every page: repeat visits to a folder, and the row thumbnails
+		// that follow, then read the listing from memory instead of Drive.
+		if (data.files) {
 			if (!Array.isArray(this.path_children_cache[cachePath])) {
 				this.path_children_cache[cachePath] = []
 			}
@@ -669,7 +749,7 @@ class googleDrive {
 	}
 
 
-	async _ls(parent, page_token = null, page_index = 0, manage = false) {
+	async _ls(parent, page_token = null, page_index = 0, manage = false, sort = null) {
 		// console.log("_ls", parent);
 
 		if (parent == undefined) {
@@ -678,11 +758,12 @@ class googleDrive {
 		let obj;
 		const params = this.fileListParams();
 		params.q = `'${parent}' in parents and trashed = false AND name !='.password'`;
-		params.orderBy = 'folder,name,modifiedTime desc';
-		// Only an admin's listing asks what may be done with each item.
+		params.orderBy = sort || 'folder,name,modifiedTime desc';
+		// Only an admin's listing asks what may be done with each item; every
+		// listing says whether Drive holds a row thumbnail.
 		params.fields = manage
-			? "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload,canRename,canTrash,canDelete,canMoveItemWithinDrive))"
-			: "nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))";
+			? "nextPageToken, files(id, name, mimeType, size, modifiedTime, thumbnailLink, capabilities(canDownload,canRename,canTrash,canDelete,canMoveItemWithinDrive))"
+			: "nextPageToken, files(id, name, mimeType, size, modifiedTime, thumbnailLink, capabilities(canDownload))";
 		params.pageSize = this.authConfig.files_list_page_size;
 
 		if (page_token) {
@@ -755,13 +836,20 @@ class googleDrive {
 		if (!is_user_drive && !is_share_drive) {
 			return empty_result;
 		}
-		let keyword = FUNCS.formatSearchKeyword(origin_keyword);
-		if (!keyword) {
+		// Filters are read from the raw query, because the sanitizer below
+		// strips the very characters they are written with.
+		const parsed = parseSearchQuery(origin_keyword);
+		let keyword = FUNCS.formatSearchKeyword(parsed.words.join(' '));
+		const words = keyword ? keyword.split(/\s+/) : [];
+		if (!words.length && !parsed.filters.mime.length && !parsed.filters.size.length) {
 			// The keyword is empty, return
 			return empty_result;
 		}
-		let words = keyword.split(/\s+/);
-		let name_search_str = `name contains '${words.join("' AND name contains '")}'`;
+		const clauses = ["trashed = false", "name !='.password'"];
+		if (words.length) {
+			clauses.push("(name contains '" + words.join("' AND name contains '") + "')");
+		}
+		clauses.push(...parsed.filters.mime, ...parsed.filters.size);
 
 		// corpora is a personal drive for user and a team drive for drive. With driveId
 		let params = {};
@@ -778,10 +866,10 @@ class googleDrive {
 		if (page_token) {
 			params.pageToken = page_token;
 		}
-		params.q = `trashed = false AND name !='.password' AND (${name_search_str})`;
+		params.q = clauses.join(' AND ');
 		params.fields = manage
-			? "nextPageToken, files(id, name, mimeType, size , modifiedTime, capabilities(canRename,canTrash,canDelete,canMoveItemWithinDrive))"
-			: "nextPageToken, files(id, name, mimeType, size , modifiedTime)";
+			? "nextPageToken, files(id, name, mimeType, size , modifiedTime, thumbnailLink, capabilities(canRename,canTrash,canDelete,canMoveItemWithinDrive))"
+			: "nextPageToken, files(id, name, mimeType, size , modifiedTime, thumbnailLink)";
 		params.pageSize = this.authConfig.search_result_list_page_size;
 		// params.orderBy = 'folder,name,modifiedTime desc';
 
