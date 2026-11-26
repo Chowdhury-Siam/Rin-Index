@@ -53,6 +53,11 @@ const iconSprite = `
 	<symbol id="i-move" viewBox="0 0 24 24"><path d="M3.8 6.4c0-1 .8-1.8 1.8-1.8h3.5c.5 0 1 .2 1.3.6l1 1.2h5.6c1 0 1.8.8 1.8 1.8v9.4c0 1-.8 1.8-1.8 1.8H5.6c-1 0-1.8-.8-1.8-1.8z"/><path d="M9.5 14.6h5M12.4 12l2.6 2.6-2.6 2.6"/></symbol>
 	<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 	<symbol id="i-new-folder" viewBox="0 0 24 24"><path d="M3.8 6.4c0-1 .8-1.8 1.8-1.8h3.5c.5 0 1 .2 1.3.6l1 1.2h7c1 0 1.8.8 1.8 1.8v9.4c0 1-.8 1.8-1.8 1.8H5.6c-1 0-1.8-.8-1.8-1.8z"/><path d="M12 10.4v5M9.5 12.9h5"/></symbol>
+	<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.6V12l3.2 1.9"/></symbol>
+	<symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 6.5v11M8 6.5 5 9.5M8 6.5l3 3M16 17.5v-11M16 17.5l3-3M16 17.5l-3-3"/></symbol>
+	<symbol id="i-home" viewBox="0 0 24 24"><path d="M4.6 11.2 12 4.8l7.4 6.4"/><path d="M6.4 10.4v8.2c0 .6.4 1 1 1h9.2c.6 0 1-.4 1-1v-8.2"/><path d="M10 19.6v-5h4v5"/></symbol>
+	<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.4 18.4a4.2 4.2 0 0 1-.5-8.4 5.4 5.4 0 0 1 10.5 1.2 3.6 3.6 0 0 1-.6 7.2z"/><path d="M12 14.8v3.6M10.2 16.2 12 14.4l1.8 1.8"/></symbol>
+	<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.6"/><path d="M5.2 19.6a6.8 6.8 0 0 1 13.6 0"/></symbol>
 	<symbol id="i-signout" viewBox="0 0 24 24"><path d="M9.5 5.2H6.6c-.9 0-1.6.7-1.6 1.6v10.4c0 .9.7 1.6 1.6 1.6h2.9"/><path d="m14.5 8.4 3.6 3.6-3.6 3.6"/><path d="M18.1 12H9.9"/></symbol>
 </svg>`;
 
@@ -69,36 +74,50 @@ function icon(name, className) {
 document.body.innerHTML = iconSprite + `
 	<a class="skip-link" href="#main">Skip to files</a>
 	<div class="frame">
-		<header class="topbar">
-			<a class="brand" href="__ROOT__"><img src="/assets/rin-mark.png" width="26" height="26" alt="">Rin Index</a>
-			<div class="topbar-actions">
-				<a class="source-link" href="https://github.com/Chowdhury-Siam/Google-Index">Source ${'' /* icon appended in JS */}</a>
-				<button class="icon-btn admin-lock" type="button" aria-label="Admin sign-in" hidden></button>
-			</div>
-		</header>
-		<main id="main" tabindex="-1">
-			<section class="pagehead" aria-labelledby="heading">
-				<nav class="crumbs" aria-label="Folder path"></nav>
+		<nav class="rail" aria-label="Primary">
+			<a class="rail-brand" href="__ROOT__" title="Rin Index"><img src="/assets/rin-mark.png" width="26" height="26" alt=""></a>
+			<a class="rail-icon rail-home" href="__ROOT__" title="Drive home" aria-label="Drive home"><svg class="icon" aria-hidden="true"><use href="#i-home"></use></svg></a>
+			<button class="icon-btn rail-icon recent-button" type="button" aria-label="Recently opened" title="Recently opened" hidden></button>
+			<button class="icon-btn rail-icon rail-search" type="button" aria-label="Search drive" title="Search drive" hidden></button>
+			<button class="icon-btn rail-icon rail-storage" type="button" aria-label="Drive storage" title="Drive storage" hidden></button>
+			<span class="spacer"></span>
+			<a class="rail-icon source-link" href="https://github.com/Chowdhury-Siam/Google-Index" title="Source on GitHub" aria-label="Source on GitHub">${'' /* icon appended in JS */}</a>
+			<button class="icon-btn rail-avatar admin-lock" type="button" aria-label="Admin sign-in" hidden></button>
+		</nav>
+		<div class="main">
+			<header class="topbar">
+				<a class="brand brand-compact" href="__ROOT__"><img src="/assets/rin-mark.png" width="22" height="22" alt="">Rin Index</a>
 				<h1 class="page-title" id="heading">Drive <em>files</em></h1>
-				<p class="drive-label"></p>
-				<form class="search" role="search" method="get" hidden>
-					<label class="sr-only" for="query">Search drive</label>
-					<span class="field"><svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
-						<input id="query" name="q" type="search" placeholder="Search drive" maxlength="200" required>
-					</span>
-					<button class="button button-primary" type="submit">Search</button>
-				</form>
-				<section class="storage" aria-label="Drive storage" hidden>
-					<div class="storage-head">
-						<h2 class="storage-title"><svg class="icon" aria-hidden="true"><use href="#i-archive"></use></svg>Drive storage</h2>
-						<span class="storage-percent">—</span>
-					</div>
-					<div class="bar"><div class="bar-fill"></div></div>
-					<dl class="storage-figures"></dl>
-					<p class="storage-note"></p>
-					<button class="icon-btn storage-refresh" type="button" aria-label="Refresh storage figures"></button>
+				<div class="topbar-actions">
+					<a class="button button-secondary save-folder-links" hidden>Save links (.txt)</a>
+					<button class="button button-secondary download-files" type="button" hidden>Download files</button>
+					<button class="button button-primary new-button" type="button" hidden>New</button>
+				</div>
+			</header>
+			<main id="main" tabindex="-1">
+				<section class="pagehead" aria-labelledby="heading">
+					<nav class="crumbs" aria-label="Folder path"></nav>
+					<p class="drive-label"></p>
+					<form class="search" role="search" method="get" hidden>
+						<label class="sr-only" for="query">Search drive</label>
+						<span class="field"><svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg>
+							<input id="query" name="q" type="search" placeholder="Search drive" maxlength="200" required>
+						</span>
+						<button class="button button-primary" type="submit">Search</button>
+					</form>
+					<p class="search-hint" hidden>Filters: type:video · type:image · type:audio · type:doc · type:folder · size:&gt;100MB</p>
+					<div class="search-chips" aria-label="Active search filters" hidden></div>
+					<section class="storage" aria-label="Drive storage" hidden>
+						<div class="storage-head">
+							<h2 class="storage-title"><svg class="icon" aria-hidden="true"><use href="#i-cloud"></use></svg>Drive storage</h2>
+							<span class="storage-percent">—</span>
+						</div>
+						<div class="bar"><div class="bar-fill"></div></div>
+						<dl class="storage-figures"></dl>
+						<p class="storage-note"></p>
+						<button class="icon-btn storage-refresh" type="button" aria-label="Refresh storage figures"></button>
+					</section>
 				</section>
-			</section>
 			<section class="folder-notes markdown" aria-label="Folder notes" hidden></section>
 			<section class="panel">
 				<div class="selection-bar" hidden>
@@ -110,20 +129,17 @@ document.body.innerHTML = iconSprite + `
 				</div>
 				<div class="panel-head">
 					<h2 class="panel-title"></h2>
-					<div class="panel-tools">
-						<p class="count"></p>
-						<a class="button button-secondary save-folder-links" hidden>Save links (.txt)</a>
-						<button class="button button-secondary download-files" type="button" hidden>Download files</button>
-						<button class="button button-primary new-button" type="button" hidden>New</button>
-					</div>
+					<p class="count"></p>
 				</div>
 				<div class="drop-zone" hidden>Drop files or folders to upload them here</div>
 				<input class="upload-input" type="file" multiple hidden>
 				<input class="folder-input" type="file" multiple hidden>
 				<p class="load-status" role="status" hidden></p>
-				<div class="list-head" aria-hidden="true">
-					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
+				<div class="list-controls" hidden>
+					<div class="filter-chips" role="group" aria-label="Filter by kind"></div>
+					<button class="button button-ghost sort-button" type="button">Sort</button>
 				</div>
+				<div class="list-head"></div>
 				<ul class="file-list" aria-label="Files and folders"></ul>
 				<p class="notice" role="status"></p>
 				<form class="folder-password inline" hidden>
@@ -136,7 +152,8 @@ document.body.innerHTML = iconSprite + `
 				</div>
 			</section>
 			<section class="folder-readme markdown" aria-label="Folder README" hidden></section>
-		</main>
+			</main>
+		</div>
 	</div>
 
 	<div class="modal-backdrop signin-backdrop" hidden>
@@ -277,6 +294,47 @@ document.body.innerHTML = iconSprite + `
 	</div>
 
 	<button class="upload-dock" type="button" hidden></button>
+
+	<div class="modal-backdrop recent-backdrop" hidden>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="recent-title">
+			<div class="modal-head">
+				<h2 id="recent-title">Recently opened</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn recent-close" type="button" data-close aria-label="Close"></button>
+			</div>
+			<div class="modal-body">
+				<ul class="recent-list"></ul>
+				<p class="recent-empty" hidden>Files you open or download appear here, on this device only. Nothing is sent anywhere else.</p>
+			</div>
+			<div class="modal-foot">
+				<button class="button button-ghost recent-clear" type="button">Clear history</button>
+				<button class="button button-secondary" type="button" data-close>Close</button>
+			</div>
+		</div>
+	</div>
+
+	<div class="modal-backdrop shortcuts-backdrop" hidden>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+			<div class="modal-head">
+				<h2 id="shortcuts-title">Keyboard shortcuts</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn shortcuts-close" type="button" data-close aria-label="Close"></button>
+			</div>
+			<div class="modal-body">
+				<div class="shortcut"><span class="shortcut-keys"><kbd>/</kbd></span><span>Focus the search field</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>Move through the file list</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>Enter</kbd></span><span>Open the highlighted item</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>Space</kbd></span><span>Select or deselect the highlighted item</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>Delete</kbd></span><span>Move the highlighted item to the trash</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>N</kbd></span><span>Open the New menu</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>Esc</kbd></span><span>Close a dialog or menu</span></div>
+				<div class="shortcut"><span class="shortcut-keys"><kbd>?</kbd></span><span>Show this list again</span></div>
+			</div>
+			<div class="modal-foot">
+				<button class="button button-secondary" type="button" data-close>Close</button>
+			</div>
+		</div>
+	</div>
 	<div class="toast" role="status" aria-live="polite"></div>
 `;
 
@@ -293,6 +351,13 @@ document.querySelector('.mkdir-close').append(icon('x'));
 document.querySelector('.rename-close').append(icon('x'));
 document.querySelector('.delete-close').append(icon('x'));
 document.querySelector('.move-close').append(icon('x'));
+document.querySelector('.recent-close').append(icon('x'));
+document.querySelector('.shortcuts-close').append(icon('x'));
+document.querySelector('.recent-button').append(icon('clock'));
+const railStorage = document.querySelector('.rail-storage');
+document.querySelector('.rail-search').append(icon('search'));
+railStorage.append(icon('cloud'));
+document.querySelector('.sort-button').prepend(icon('sort'));
 document.querySelector('.move-create-btn').append(icon('plus'));
 document.querySelector('.download-files').prepend(icon('download'));
 document.querySelector('.save-folder-links').prepend(icon('download'));
@@ -343,11 +408,69 @@ segments.forEach((segment, index) => {
 });
 
 const searchForm = document.querySelector('.search');
+const searchChips = document.querySelector('.search-chips');
+const searchHint = document.querySelector('.search-hint');
 if (model.root_type < 2) {
 	searchForm.hidden = false;
 	searchForm.action = searchPath;
 	searchForm.elements.q.value = isSearch ? model.q : '';
+	searchHint.hidden = false;
 }
+
+// The rail's search icon lands on the field wherever the page is.
+const railSearch = document.querySelector('.rail-search');
+railSearch.hidden = searchForm.hidden;
+railSearch.addEventListener('click', () => {
+	if (searchForm.hidden) return;
+	searchForm.scrollIntoView({ block: 'center', behavior: 'smooth' });
+	searchForm.elements.q.focus();
+});
+
+/* ---------------------------------------------------------- search chips --- */
+
+// The same tokens the Worker parses (type: and size:), read here only to
+// show what is active; removing a chip re-runs the search without it.
+const SEARCH_FILTER_RE = /^type:(video|image|audio|doc|pdf|folder)$/i;
+const SEARCH_SIZE_RE = /^size:([<>])([\d.]+)(b|kb|mb|gb|tb)?$/i;
+
+function parseSearchTokens(raw) {
+	const filters = [];
+	const words = [];
+	for (const token of String(raw || '').split(/\s+/).filter(Boolean)) {
+		if (SEARCH_FILTER_RE.test(token) || SEARCH_SIZE_RE.test(token)) filters.push(token.toLowerCase());
+		else words.push(token);
+	}
+	return { filters, words };
+}
+
+function searchChipLabel(token) {
+	const type = /^type:([a-z]+)$/i.exec(token);
+	if (type) return type[1].toLowerCase();
+	const size = SEARCH_SIZE_RE.exec(token);
+	if (size) return (size[1] === '>' ? 'over ' : 'under ') + size[2] + (size[3] || 'mb').toUpperCase();
+	return token;
+}
+
+function renderSearchChips(raw) {
+	const { filters } = parseSearchTokens(raw);
+	searchChips.replaceChildren();
+	for (const token of filters) {
+		const chip = create('button', 'search-chip');
+		chip.type = 'button';
+		chip.append(create('span', '', searchChipLabel(token)), icon('x'));
+		chip.setAttribute('aria-label', 'Remove the filter ' + searchChipLabel(token));
+		chip.title = 'Remove this filter and search again';
+		chip.addEventListener('click', () => {
+			const kept = String(searchForm.elements.q.value || '').split(/\s+/)
+				.filter(part => part && part.toLowerCase() !== token).join(' ');
+			searchForm.elements.q.value = kept;
+			searchForm.submit();
+		});
+		searchChips.append(chip);
+	}
+	searchChips.hidden = !filters.length;
+}
+if (isSearch) renderSearchChips(model.q);
 
 /* ----------------------------------------------------------- file kinds --- */
 
@@ -442,15 +565,33 @@ function copyUrlButton(url, fileName) {
 	return button;
 }
 
-function downloadIconLink(filePath, fileName) {
+function downloadIconLink(filePath, file) {
 	const link = create('a', 'icon-btn');
 	link.href = filePath;
-	link.download = fileName;
-	link.title = 'Download ' + fileName;
-	link.setAttribute('aria-label', 'Download ' + fileName);
+	link.download = file.name;
+	link.title = 'Download ' + file.name;
+	link.setAttribute('aria-label', 'Download ' + file.name);
 	link.append(icon('download'));
+	// A download is one of the two things that make a file "recent".
+	link.addEventListener('click', () => recordRecent(file, filePath));
 	return link;
 }
+
+// Row thumbnails load only as they approach the viewport, so a page full of
+// images never fires a burst of requests at once.
+const thumbObserver = 'IntersectionObserver' in window
+	? new IntersectionObserver(entries => {
+		for (const entry of entries) {
+			if (!entry.isIntersecting) continue;
+			const img = entry.target;
+			thumbObserver.unobserve(img);
+			if (img.dataset.src) {
+				img.src = img.dataset.src;
+				delete img.dataset.src;
+			}
+		}
+	}, { rootMargin: '300px' })
+	: null;
 
 /* ------------------------------------------------------------- data load --- */
 
@@ -537,6 +678,7 @@ function row(file) {
 	const filePath = path + encodeURIComponent(file.name);
 	const entry = create('li', 'row');
 	entry._item = file;
+	entry._kind = kind.type;
 
 	if (selectable) {
 		const box = create('input', 'checkbox');
@@ -557,7 +699,25 @@ function row(file) {
 	}
 	const name = create('span', 'row-name', file.name);
 	name.title = file.name;
-	main.append(kindIcon(kind.type), name);
+	// An image with a Drive render shows it in place of the kind icon; the
+	// proxy URL keeps the request on this origin under the same access rules.
+	let lead = kindIcon(kind.type);
+	if (kind.type === 'image' && file.thumbnailLink) {
+		const thumb = create('img', 'row-thumb');
+		thumb.alt = '';
+		thumb.decoding = 'async';
+		thumb.width = 26;
+		thumb.height = 26;
+		thumb.dataset.src = filePath + '?thumb=1';
+		thumb.addEventListener('error', () => {
+			// Drive's render is unavailable; the kind icon still says what it is.
+			thumb.replaceWith(kindIcon(kind.type));
+		}, { once: true });
+		if (thumbObserver) thumbObserver.observe(thumb);
+		else thumb.src = thumb.dataset.src;
+		lead = thumb;
+	}
+	main.append(lead, name);
 
 	const side = create('div', 'row-side');
 	side.append(
@@ -568,7 +728,7 @@ function row(file) {
 	if (!isSearch && !folder) {
 		actions.append(
 			copyUrlButton(filePath, file.name),
-			downloadIconLink(filePath, file.name)
+			downloadIconLink(filePath, file)
 		);
 	}
 	if (rowMenus) {
@@ -624,16 +784,177 @@ selectAllBox.addEventListener('change', () => {
 if (selectable) {
 	listHead.classList.add('is-managed');
 	fileList.classList.add('is-managed');
-	listHead.removeAttribute('aria-hidden');
-	const selectCell = create('span', 'row-select');
-	selectCell.append(selectAllBox);
-	listHead.replaceChildren(
-		selectCell,
-		create('span', '', 'Name'),
-		create('span', '', 'Last modified'),
-		create('span', '', 'Size'),
-		create('span')
-	);
+}
+
+/* --------------------------------------------------------- sort & filter --- */
+
+// One token per ordering; the wire format is the key plus a direction, and
+// the Worker maps that onto Drive's orderBy with the same defaults.
+const SORTS = {
+	name: { key: 'name', dir: 1, label: 'Name A→Z' },
+	name_desc: { key: 'name', dir: -1, label: 'Name Z→A' },
+	modifiedTime: { key: 'modifiedTime', dir: -1, label: 'Newest first' },
+	modifiedTime_asc: { key: 'modifiedTime', dir: 1, label: 'Oldest first' },
+	size: { key: 'size', dir: -1, label: 'Largest first' },
+	size_asc: { key: 'size', dir: 1, label: 'Smallest first' }
+};
+const FILTERS = {
+	all: 'All',
+	folder: 'Folders',
+	image: 'Images',
+	video: 'Video',
+	audio: 'Audio',
+	doc: 'Docs'
+};
+// "Docs" gathers the reading kinds; the other filters are kinds outright.
+const DOC_KINDS = ['text', 'pdf', 'code'];
+
+const listControls = document.querySelector('.list-controls');
+const filterChips = document.querySelector('.filter-chips');
+const sortButton = document.querySelector('.sort-button');
+let currentSort = 'name';
+let currentFilter = 'all';
+
+function buildListHead() {
+	const cells = [];
+	if (selectable) {
+		const selectCell = create('span', 'row-select');
+		selectCell.append(selectAllBox);
+		cells.push(selectCell);
+	}
+	const nameButton = create('button', 'head-sort');
+	nameButton.type = 'button';
+	nameButton.dataset.key = 'name';
+	nameButton.textContent = 'Name';
+	nameButton.title = 'Sort by name';
+	nameButton.addEventListener('click', () => setSort(nextSortToken('name')));
+	cells.push(nameButton);
+	// The side labels sit in a block that mirrors a row's own side, so the
+	// columns line up over their values.
+	const sideWrap = create('div', 'list-head-side');
+	for (const spec of [
+		{ key: 'modifiedTime', label: 'Last modified' },
+		{ key: 'size', label: 'Size' }
+	]) {
+		const button = create('button', 'head-sort');
+		button.type = 'button';
+		button.dataset.key = spec.key;
+		button.textContent = spec.label;
+		button.title = 'Sort by ' + spec.label.toLowerCase();
+		button.addEventListener('click', () => setSort(nextSortToken(spec.key)));
+		sideWrap.append(button);
+	}
+	cells.push(sideWrap);
+	listHead.replaceChildren(...cells);
+}
+
+function nextSortToken(key) {
+	const current = SORTS[currentSort];
+	if (current.key !== key) {
+		// Each column's natural direction: names rise, dates and sizes fall.
+		return key === 'name' ? 'name' : key;
+	}
+	return current.dir === 1 ? key + '_asc' : (key === 'name' ? 'name' : key);
+}
+
+function updateSortIndicators() {
+	const spec = SORTS[currentSort];
+	for (const button of listHead.querySelectorAll('.head-sort')) {
+		const active = button.dataset.key === spec.key;
+		button.classList.toggle('is-active', active);
+		button.setAttribute('aria-sort', active ? (spec.dir === 1 ? 'ascending' : 'descending') : 'none');
+	}
+	sortButton.textContent = '';
+	sortButton.append(icon('sort'), create('span', '', spec.label));
+}
+
+function setSort(token) {
+	if (!SORTS[token] || token === currentSort) return;
+	currentSort = token;
+	updateSortIndicators();
+	// What is loaded re-sorts at once for the feel of it; the reload that
+	// follows is the authoritative one, so pagination stays in order.
+	applyClientSort();
+	refreshListing();
+}
+
+function applyClientSort() {
+	const spec = SORTS[currentSort];
+	const entries = [...fileList.children];
+	entries.sort((a, b) => {
+		const folderFirst = Number(a._kind === 'folder') - Number(b._kind === 'folder');
+		if (folderFirst) return -folderFirst;
+		let result = 0;
+		if (spec.key === 'name') {
+			result = a._item.name.localeCompare(b._item.name, undefined, { numeric: true, sensitivity: 'base' });
+		} else if (spec.key === 'size') {
+			result = (Number(a._item.size) || 0) - (Number(b._item.size) || 0);
+		} else {
+			result = new Date(a._item.modifiedTime || 0) - new Date(b._item.modifiedTime || 0);
+		}
+		return result * spec.dir;
+	});
+	fileList.append(...entries);
+	clearKeyRow();
+}
+
+function applyFilter() {
+	for (const entry of fileList.children) {
+		const keep = currentFilter === 'all'
+			|| entry._kind === currentFilter
+			|| (currentFilter === 'doc' && DOC_KINDS.includes(entry._kind));
+		entry.hidden = !keep;
+	}
+	updateCount();
+	clearKeyRow();
+}
+
+function setFilter(token) {
+	if (currentFilter === token) return;
+	currentFilter = token;
+	for (const chip of filterChips.children) {
+		const active = chip.dataset.filter === token;
+		chip.classList.toggle('is-active', active);
+		chip.setAttribute('aria-pressed', String(active));
+	}
+	applyFilter();
+}
+
+function buildFilterChips() {
+	for (const [token, label] of Object.entries(FILTERS)) {
+		const chip = create('button', 'filter-chip');
+		chip.type = 'button';
+		chip.textContent = label;
+		chip.dataset.filter = token;
+		chip.setAttribute('aria-pressed', String(token === 'all'));
+		if (token === 'all') chip.classList.add('is-active');
+		chip.addEventListener('click', () => setFilter(token));
+		filterChips.append(chip);
+	}
+}
+
+function updateCount() {
+	const total = fileList.children.length;
+	const visible = [...fileList.children].filter(entry => !entry.hidden).length;
+	count.textContent = numbers.format(visible) + (visible === 1 ? ' item' : ' items')
+		+ (visible !== total ? ' of ' + numbers.format(total) : '');
+	showNotice(visible ? '' : total
+		? 'No items match this filter.'
+		: (isSearch ? 'No files matched your search.' : 'This folder is empty.'));
+}
+
+buildListHead();
+buildFilterChips();
+updateSortIndicators();
+if (isFolder && !isSearch) {
+	listControls.hidden = false;
+	sortButton.addEventListener('click', () => {
+		showMenu(sortButton, Object.entries(SORTS).map(([token, spec]) => ({
+			icon: token === currentSort ? 'check' : null,
+			label: spec.label,
+			onPick: () => setSort(token)
+		})));
+	});
 }
 
 async function showMarkdown(file, target) {
@@ -730,6 +1051,12 @@ async function loadPage() {
 	try {
 		const fields = { page_index: pageIndex, page_token: nextPageToken };
 		if (isSearch) fields.q = model.q;
+		if (isFolder && !isSearch) {
+			// The listing asks Drive for the page in the chosen order, so
+			// every page that loads later lines up with the first.
+			fields.sort = SORTS[currentSort].key;
+			fields.dir = SORTS[currentSort].dir === 1 ? 'asc' : 'desc';
+		}
 		if (password) fields.password = password;
 
 		const response = await post(isSearch ? searchPath : path, fields);
@@ -751,13 +1078,11 @@ async function loadPage() {
 				if (file.name === 'README.md') showMarkdown(file, document.querySelector('.folder-readme'));
 			}
 		}
-		const total = fileList.children.length;
-		count.textContent = numbers.format(total) + (total === 1 ? ' item' : ' items');
 		nextPageToken = data.nextPageToken || '';
 		pageIndex += 1;
 		panelActions.hidden = !nextPageToken;
 		loadButton.textContent = 'Load more';
-		showNotice(total ? '' : isSearch ? 'No files matched your search.' : 'This folder is empty.');
+		applyFilter();
 	} catch (error) {
 		showNotice(error.message || 'Could not load files.');
 		panelActions.hidden = false;
@@ -773,6 +1098,7 @@ function refreshListing() {
 	count.textContent = '';
 	selected.clear();
 	updateSelection();
+	clearKeyRow();
 	for (const selector of ['.folder-notes', '.folder-readme']) {
 		const section = document.querySelector(selector);
 		section.replaceChildren();
@@ -1444,10 +1770,13 @@ async function previewFile() {
 		const response = await post(path);
 		const file = await response.json();
 		const kind = fileKind(file);
+		// Opening a preview is the other thing that makes a file "recent".
+		recordRecent(file, path);
 		previewTitle.textContent = file.name;
 		previewMeta.textContent = [kind.label, formatSize(file.size), modified(file)].join(' · ');
 		previewDownload.href = path;
 		previewDownload.download = file.name;
+		previewDownload.addEventListener('click', () => recordRecent(file, path));
 		document.querySelector('.preview-copy').onclick = () => copyDirectUrl(path, file.name);
 
 		previewStage.replaceChildren(create('p', 'notice', 'Loading preview…'));
@@ -1553,7 +1882,7 @@ async function signOut() {
 
 if (canAdmin) {
 	adminLock.hidden = false;
-	adminLock.replaceChildren(icon('lock'));
+	adminLock.replaceChildren(icon('user'));
 	adminLock.classList.toggle('is-active', isAdmin);
 	const lockLabel = isAdmin ? 'Admin session' : 'Admin sign-in';
 	adminLock.title = lockLabel;
@@ -1570,6 +1899,171 @@ if (canAdmin) {
 		}
 	});
 }
+
+/* --------------------------------------------------------- recent files --- */
+
+// The last files opened or downloaded, kept in this browser alone: the store
+// holds only paths that browser already visited, and a private index still
+// asks for its sign-in when one of them is opened again.
+const RECENT_KEY = 'rin-recent';
+const RECENT_CAP = 20;
+
+const recentButton = document.querySelector('.recent-button');
+const recentList = document.querySelector('.recent-list');
+const recentEmpty = document.querySelector('.recent-empty');
+const recentDialog = bindDialog(document.querySelector('.recent-backdrop'), { onOpen: renderRecent });
+
+function loadRecent() {
+	try {
+		const value = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+		return Array.isArray(value)
+			? value.filter(item => item && typeof item.path === 'string' && item.name)
+			.slice(0, RECENT_CAP)
+			: [];
+	} catch {
+		return [];
+	}
+}
+
+function saveRecent(list) {
+	try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch {}
+}
+
+function recordRecent(file, filePath) {
+	if (!file?.name || file.mimeType === folderMime || !filePath) return;
+	const list = loadRecent().filter(item => item.path !== filePath);
+	list.unshift({ path: filePath, name: file.name, kind: fileKind(file).type, at: Date.now() });
+	saveRecent(list.slice(0, RECENT_CAP));
+}
+
+function timeAgo(at) {
+	const minutes = Math.round((Date.now() - at) / 60000);
+	if (minutes < 1) return 'just now';
+	if (minutes < 60) return minutes + ' min ago';
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
+	const days = Math.round(hours / 24);
+	return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+function renderRecent() {
+	const list = loadRecent();
+	recentList.replaceChildren(...list.map(entry => {
+		const item = create('li', 'recent-row');
+		const link = create('a', 'recent-link');
+		link.href = entry.path + '?a=view';
+		link.append(kindIcon(entry.kind), create('span', 'recent-name', entry.name));
+		link.title = entry.name;
+		const when = create('span', 'recent-when', timeAgo(entry.at));
+		item.append(link, when);
+		return item;
+	}));
+	recentEmpty.hidden = Boolean(list.length);
+}
+
+recentButton.hidden = false;
+recentButton.title = 'Recently opened';
+recentButton.addEventListener('click', () => recentDialog.open());
+document.querySelector('.recent-clear').addEventListener('click', () => {
+	saveRecent([]);
+	renderRecent();
+});
+
+/* ------------------------------------------------------ keyboard shortcuts --- */
+
+// Single-key operation of the listing: / focuses search, arrows walk the
+// rows, Enter opens, Space selects, Delete trashes, N opens the New menu, ?
+// shows the list. Typing in a field or having a dialog open hands the keys
+// back; Escape is routed by the layer stack and stays untouched here.
+const shortcutsDialog = bindDialog(document.querySelector('.shortcuts-backdrop'), {});
+let keyRow = null;
+
+function clearKeyRow() {
+	if (keyRow) keyRow.classList.remove('is-keynav');
+	keyRow = null;
+}
+
+function setKeyRow(entry) {
+	clearKeyRow();
+	keyRow = entry;
+	entry.classList.add('is-keynav');
+	entry.scrollIntoView({ block: 'nearest' });
+}
+
+function keyRows() {
+	return [...fileList.children].filter(entry => !entry.hidden);
+}
+
+function moveKeyRow(delta) {
+	const rows = keyRows();
+	if (!rows.length) return;
+	const index = keyRow ? rows.indexOf(keyRow) : (delta > 0 ? 0 : rows.length - 1);
+	if (index === -1) return;
+	const next = index + delta;
+	if (next < 0 || next >= rows.length) return;
+	setKeyRow(rows[next]);
+}
+
+document.addEventListener('keydown', event => {
+	if (event.ctrlKey || event.metaKey || event.altKey) return;
+	const active = document.activeElement;
+	const typing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA'
+		|| active.tagName === 'SELECT' || active.isContentEditable);
+	if (typing || layers.length) return;
+	// A focused link or button owns Space and Enter; the browser clicks it.
+	if (active && (active.tagName === 'BUTTON' || active.tagName === 'A') && (event.key === ' ' || event.key === 'Enter')) return;
+	switch (event.key) {
+		case '/':
+			if (!searchForm.hidden) {
+				event.preventDefault();
+				searchForm.elements.q.focus();
+			}
+			break;
+		case '?':
+			event.preventDefault();
+			if (shortcutsDialog.isOpen()) shortcutsDialog.close();
+			else shortcutsDialog.open();
+			break;
+		case 'ArrowDown':
+			if (keyRows().length) {
+				event.preventDefault();
+				moveKeyRow(1);
+			}
+			break;
+		case 'ArrowUp':
+			if (keyRows().length) {
+				event.preventDefault();
+				moveKeyRow(-1);
+			}
+			break;
+		case 'Enter':
+			if (keyRow) {
+				event.preventDefault();
+				keyRow.querySelector('.row-main').click();
+			}
+			break;
+		case ' ':
+			if (keyRow && selectable) {
+				event.preventDefault();
+				setSelected(keyRow, !selected.has(keyRow._item.id));
+			}
+			break;
+		case 'Delete':
+			if (keyRow && rowMenus) {
+				event.preventDefault();
+				const file = keyRow._item;
+				prepareRowAction(file, folderUrl => openDelete([file], folderUrl));
+			}
+			break;
+		case 'n':
+		case 'N':
+			if (!newButton.hidden) {
+				event.preventDefault();
+				newButton.click();
+			}
+			break;
+	}
+});
 
 /* ---------------------------------------------------------------- uploads --- */
 
@@ -1807,7 +2301,16 @@ function buildBatchDom(batch) {
 	const topline = create('div', 'topline');
 	const percentEl = create('span', 'upload-percent', '0%');
 	const figuresEl = create('span', 'upload-figures', '');
-	topline.append(percentEl, figuresEl);
+	// Settled batches stay as history until they are dismissed here or with
+	// the clear button; running batches keep it out of the way.
+	const dismissBtn = create('button', 'icon-btn upload-dismiss');
+	dismissBtn.type = 'button';
+	dismissBtn.title = 'Dismiss';
+	dismissBtn.setAttribute('aria-label', 'Dismiss this batch');
+	dismissBtn.hidden = true;
+	dismissBtn.append(icon('x'));
+	dismissBtn.addEventListener('click', () => dismissBatch(batch));
+	topline.append(percentEl, figuresEl, dismissBtn);
 	const bar = create('div', 'bar');
 	const fill = create('div', 'bar-fill');
 	bar.append(fill);
@@ -1855,7 +2358,17 @@ function buildBatchDom(batch) {
 	});
 	retryFailedBtn.addEventListener('click', () => {
 		const failedFiles = batch.states.filter(record => record && record.state === 'error').map(record => record.file);
-		if (failedFiles.length) startUpload(failedFiles, 'Retry');
+		if (!failedFiles.length) return;
+		// The retried files move to the new batch; their failures leave the
+		// history here, so the dock stops counting what was already retried.
+		for (let index = 0; index < batch.states.length; index++) {
+			const record = batch.states[index];
+			if (!record || record.state !== 'error') continue;
+			batch.states[index] = null;
+			if (batch.rows[index]) batch.rows[index].item.remove();
+		}
+		if (!batch.states.some(Boolean)) dismissBatch(batch);
+		startUpload(failedFiles, 'Retry');
 	});
 	copyReportBtn.addEventListener('click', async () => {
 		const text = buildBatchReport(batch);
@@ -1864,7 +2377,7 @@ function buildBatchDom(batch) {
 
 	section.append(overview, listEl, foot);
 	uploadBody.append(section);
-	Object.assign(batch, { section, percentEl, figuresEl, fill, subEl, listEl, pauseAllBtn, resumeAllBtn, cancelRestBtn, retryFailedBtn, copyReportBtn });
+	Object.assign(batch, { section, percentEl, figuresEl, dismissBtn, fill, subEl, listEl, pauseAllBtn, resumeAllBtn, cancelRestBtn, retryFailedBtn, copyReportBtn });
 }
 
 function onBatchEvent(batch, event) {
@@ -1976,12 +2489,42 @@ function renderBatch(batch) {
 	batch.cancelRestBtn.hidden = batch.done && !unfinished;
 	batch.retryFailedBtn.hidden = !(batch.done && failed);
 	batch.copyReportBtn.hidden = !batch.done || !batch.batch;
+	batch.dismissBtn.hidden = !batch.done;
 }
 
 function renderPanelButtons() {
 	const active = batches.some(batch => !batch.done);
 	uploadCloseBtn.disabled = active;
 	uploadCloseBtn.title = active ? 'Uploads are still running' : 'Clear finished uploads';
+}
+
+// Settled batches are the transfer history: they keep their per-file outcomes
+// and report until dismissed, and only the last few stay (the oldest goes
+// when a new batch settles past the cap).
+const HISTORY_CAP = 3;
+
+function dismissBatch(batch) {
+	batch.section.remove();
+	const index = batches.indexOf(batch);
+	if (index >= 0) batches.splice(index, 1);
+	if (!batches.length) {
+		uploadsDismissed = true;
+		uploadBackdrop.hidden = true;
+		if (uploadPanelCloser) {
+			removeLayer(uploadPanelCloser);
+			uploadPanelCloser = null;
+		}
+	}
+	renderPanelButtons();
+	renderDock();
+}
+
+function trimUploadHistory() {
+	const settled = batches.filter(batch => batch.done);
+	// Keep the newest HISTORY_CAP settled batches; drop older ones only when
+	// the count actually exceeds the cap.
+	const excess = Math.max(0, settled.length - HISTORY_CAP);
+	for (const batch of settled.slice(0, excess)) dismissBatch(batch);
 }
 
 // The dock is one persistent set of nodes whose text and bar are updated in
@@ -2000,17 +2543,25 @@ function renderDock() {
 	let uploaded = 0;
 	let speed = 0;
 	let running = false;
+	let failures = 0;
 	for (const batch of batches) {
 		const summary = batch.batch;
-		if (!summary) continue;
-		total += summary.total || 0;
-		uploaded += summary.uploaded || 0;
-		speed += summary.speed || 0;
+		if (summary) {
+			total += summary.total || 0;
+			uploaded += summary.uploaded || 0;
+			speed += summary.speed || 0;
+		}
 		if (!batch.done) running = true;
+		for (const record of batch.states) if (record && record.state === 'error') failures++;
 	}
+	uploadDock.classList.toggle('has-failures', !running && failures > 0);
 	const percent = total ? Math.min(100, uploaded / total * 100) : 0;
 	dockFill.style.width = percent.toFixed(1) + '%';
-	dockLabel.textContent = (running ? Math.round(percent) + '%' : 'Done') + ' · ' + (running ? (formatSpeed(speed) || 'starting') : 'uploads');
+	dockLabel.textContent = running
+		? Math.round(percent) + '% · ' + (formatSpeed(speed) || 'starting')
+		: (failures
+			? failures + (failures === 1 ? ' file failed' : ' files failed')
+			: 'Done · uploads');
 }
 
 function openUploadPanel() {
@@ -2136,9 +2687,11 @@ function startUpload(files, title) {
 		batch.done = true;
 		if (state.succeeded) refreshListing();
 		loadStorage(true);
+		trimUploadHistory();
 		scheduleUploadRender();
 	}).catch(() => {
 		batch.done = true;
+		trimUploadHistory();
 		scheduleUploadRender();
 	});
 	scheduleUploadRender();
@@ -2289,6 +2842,8 @@ folderInput.addEventListener('change', () => {
 
 if (isSearch || isFolder) {
 	panel.querySelector('.panel-title').textContent = isSearch ? 'Matching files' : 'Files and folders';
+	// The rail marks the section the page belongs to.
+	if (isFolder && !isSearch) document.querySelector('.rail-home').classList.add('is-active');
 	if (isFolder && !isSearch) {
 		downloadFilesButton.hidden = false;
 		saveLinksButton.href = path + '?download=links';
@@ -2298,6 +2853,11 @@ if (isSearch || isFolder) {
 		if (isAdmin) {
 			setupDropZone();
 			loadStorage(false);
+			// The rail's cloud icon folds the storage band away and back.
+			railStorage.hidden = false;
+			railStorage.addEventListener('click', () => {
+				storageSection.hidden = !storageSection.hidden;
+			});
 		}
 	}
 	loadButton.addEventListener('click', loadPage);
