@@ -2402,6 +2402,444 @@ svg.icon {
 	}
 }
 
+/* ------------------------------------------------------------ player --- */
+
+/* A media file plays on its own page: the folder chrome is hidden and this
+ * section takes over the main column. Everything is drawn in the shell's
+ * grey-on-dark scale, like the rest of the app. */
+.player {
+	display: flex;
+	flex-direction: column;
+	gap: var(--s3);
+}
+
+.player-head {
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+	min-width: 0;
+}
+
+.player-title {
+	flex: 1;
+	min-width: 0;
+}
+
+.player-name {
+	margin: 0;
+	font-size: 1.05rem;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.player-meta {
+	margin: 2px 0 0;
+	color: var(--text-3);
+	font-size: 0.8rem;
+}
+
+.player-head-actions {
+	display: flex;
+	gap: var(--s1);
+	flex: none;
+}
+
+.player-stage {
+	position: relative;
+	background: #000;
+	border: 1px solid var(--border);
+	border-radius: var(--r-lg);
+	overflow: hidden;
+	aspect-ratio: 16 / 9;
+	width: 100%;
+	/* The topbar, crumbs, player head and note need the rest of the view. */
+	max-height: calc(100vh - 330px);
+	min-height: 260px;
+}
+
+.player-stage:fullscreen {
+	max-height: none;
+	border: 0;
+	border-radius: 0;
+	aspect-ratio: auto;
+}
+
+.player-media {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: #000;
+}
+
+/* The audio layout: no black stage, a centered card with the controls
+ * underneath it. */
+.player.is-audio .player-stage {
+	aspect-ratio: auto;
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	display: flex;
+	align-items: stretch;
+}
+
+.player.is-audio .player-media {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.player-audio-card {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--s2);
+	padding: var(--s5) var(--s3);
+	min-height: 180px;
+}
+
+.player-audio-card svg.icon {
+	width: 52px;
+	height: 52px;
+	color: var(--text-3);
+}
+
+.player-audio-name {
+	margin: 0;
+	font-size: 0.95rem;
+	font-weight: 600;
+	color: var(--text-2);
+	text-align: center;
+	word-break: break-word;
+}
+
+/* Caption overlay: rendered by the page, so it looks the same for every
+ * subtitle format and sits above the control bar. */
+.player-subs {
+	position: absolute;
+	left: 24px;
+	right: 24px;
+	bottom: 72px;
+	text-align: center;
+	pointer-events: none;
+	z-index: 4;
+}
+
+/* Each caption line is its own centred chip, so a two-line cue stacks
+ * instead of flowing side by side on a wide stage. */
+.player-subs span {
+	display: table;
+	margin: 1px auto;
+	background: rgba(0, 0, 0, 0.72);
+	color: #fff;
+	padding: 0.18em 0.5em;
+	border-radius: 6px;
+	font-size: clamp(14px, 2.2vw, 24px);
+	line-height: 1.35;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+	white-space: pre-wrap;
+}
+
+.player-status {
+	position: absolute;
+	top: var(--s2);
+	left: 50%;
+	transform: translateX(-50%);
+	margin: 0;
+	color: var(--text-3);
+	font-size: 0.8rem;
+	z-index: 4;
+}
+
+.player-big {
+	position: absolute;
+	inset: 0;
+	margin: auto;
+	width: 72px;
+	height: 72px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.55);
+	border: 1px solid rgba(255, 255, 255, 0.25);
+	border-radius: 50%;
+	color: #fff;
+	cursor: pointer;
+	z-index: 5;
+}
+
+.player-big:hover {
+	background: rgba(0, 0, 0, 0.75);
+}
+
+.player-big svg.icon {
+	width: 30px;
+	height: 30px;
+}
+
+.player-failed {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--s2);
+	padding: var(--s4);
+	text-align: center;
+	color: var(--text-2);
+	z-index: 6;
+	background: var(--surface-2);
+}
+
+.player-failed p {
+	margin: 0;
+	max-width: 44ch;
+}
+
+.player-resume {
+	position: absolute;
+	top: var(--s3);
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+	padding: var(--s2) var(--s3);
+	background: rgba(13, 13, 13, 0.92);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-lg);
+	box-shadow: var(--shadow-2);
+	z-index: 7;
+	white-space: nowrap;
+}
+
+.player-resume span {
+	font-size: 0.85rem;
+	color: var(--text-2);
+}
+
+/* Controls: a gradient bar over the bottom of the stage; the stage is the
+ * fullscreen root, so they stay available in fullscreen too. */
+.player-controls {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: var(--s4) var(--s2) var(--s2);
+	background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.4) 60%, transparent);
+	z-index: 5;
+	transition: opacity 0.22s ease;
+}
+
+.player.is-idle .player-controls {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.player.is-idle .player-big {
+	opacity: 0;
+}
+
+.player.is-idle,
+.player.is-idle .player-media {
+	cursor: none;
+}
+
+.player-bar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: #fff;
+}
+
+.player-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	flex: none;
+	background: transparent;
+	border: 0;
+	border-radius: var(--r-md);
+	color: rgba(255, 255, 255, 0.88);
+	cursor: pointer;
+}
+
+.player-btn:hover {
+	background: rgba(255, 255, 255, 0.12);
+	color: #fff;
+}
+
+/* The subtitles button carries a dot while a track is active. */
+.player-btn.is-on {
+	color: #fff;
+}
+
+.player-btn.is-on::after {
+	content: '';
+	position: absolute;
+	top: 24px;
+	left: 50%;
+	width: 5px;
+	height: 5px;
+	margin-left: -2.5px;
+	border-radius: 50%;
+	background: #fff;
+}
+
+.player-btn svg.icon {
+	width: 19px;
+	height: 19px;
+}
+
+.player-speed {
+	width: auto;
+	min-width: 2.8em;
+	font-size: 0.82rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.player-time {
+	font-size: 0.78rem;
+	font-variant-numeric: tabular-nums;
+	color: rgba(255, 255, 255, 0.85);
+	flex: none;
+}
+
+.player-duration {
+	color: rgba(255, 255, 255, 0.55);
+}
+
+.player-seek {
+	flex: 1;
+	min-width: 60px;
+	height: 22px;
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+	touch-action: none;
+}
+
+.seek-track {
+	position: relative;
+	width: 100%;
+	height: 4px;
+	border-radius: 2px;
+	background: rgba(255, 255, 255, 0.22);
+}
+
+.seek-buffered,
+.seek-played {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	border-radius: 2px;
+	width: 0;
+}
+
+.seek-buffered {
+	background: rgba(255, 255, 255, 0.34);
+}
+
+.seek-played {
+	background: #fff;
+}
+
+.seek-thumb {
+	position: absolute;
+	top: 50%;
+	left: 0;
+	width: 12px;
+	height: 12px;
+	margin-left: -6px;
+	transform: translateY(-50%) scale(0);
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+	transition: transform 0.12s ease;
+}
+
+.player-seek:hover .seek-thumb,
+.player-seek:focus-visible .seek-thumb {
+	transform: translateY(-50%) scale(1);
+}
+
+.player-seek:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+	border-radius: var(--r-sm);
+}
+
+.player-volume {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: none;
+}
+
+.player-volume-range {
+	width: 76px;
+	height: 4px;
+	accent-color: #fff;
+	cursor: pointer;
+}
+
+.player-note {
+	margin: 0;
+	min-height: 1.2em;
+	color: var(--text-3);
+	font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+	.player-head {
+		flex-wrap: wrap;
+	}
+
+	.player-resume {
+		flex-wrap: wrap;
+		justify-content: center;
+		white-space: normal;
+	}
+
+	.player-subs {
+		left: 10px;
+		right: 10px;
+		bottom: 64px;
+	}
+
+	.player-bar {
+		gap: 6px;
+	}
+
+	.player-pip {
+		display: none;
+	}
+
+	.player-volume-range {
+		width: 52px;
+	}
+
+	.player-time {
+		font-size: 0.72rem;
+	}
+}
+
+@media (max-width: 480px) {
+	.player-duration {
+		display: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
