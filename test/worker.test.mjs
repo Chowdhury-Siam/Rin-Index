@@ -775,7 +775,7 @@ test('the served page is dark-only: one theme color, no switcher, no system pref
 	const html = await page.text();
 	const themeColors = [...html.matchAll(/<meta name="theme-color"[^>]*>/g)];
 	assert.equal(themeColors.length, 1, 'exactly one theme color, without a light variant');
-	assert.match(themeColors[0][0], /#0c090b/);
+	assert.match(themeColors[0][0], /#0d0d0d/);
 	assert.doesNotMatch(html, /prefers-color-scheme/, 'the page never follows the device theme');
 	assert.doesNotMatch(html, /rin-theme/, 'no stored theme preference is read');
 	assert.doesNotMatch(html, /data-theme/, 'no theme attribute is set');
