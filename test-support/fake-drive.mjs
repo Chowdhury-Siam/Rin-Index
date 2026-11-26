@@ -83,6 +83,10 @@ function compareItems(orderBy) {
 
 export function createFakeDrive(options = {}) {
 	const rootId = options.rootId || 'root';
+	// Real Drive answers the "root" alias with the actual root folder ID, and
+	// file metadata carries that ID as the parent. With realRootId set, the
+	// fake reproduces exactly that, so alias handling can be tested.
+	const realRootId = options.realRootId || rootId;
 	let nextId = 1;
 	let nextSession = 1;
 	const items = new Map();
@@ -121,7 +125,7 @@ export function createFakeDrive(options = {}) {
 				id,
 				name: fields.name || id,
 				mimeType: fields.mimeType || (folder ? FOLDER : 'text/plain'),
-				parents: (fields.parents || [rootId]).map(parent => parent === 'root' ? rootId : parent),
+				parents: (fields.parents || [rootId]).map(parent => parent === 'root' ? realRootId : parent),
 				...(fields.size === undefined ? {} : { size: String(fields.size) })
 			};
 			items.set(id, item);
@@ -227,7 +231,7 @@ export function createFakeDrive(options = {}) {
 		if (kind === 'files.list') {
 			const query = parseQuery(url.searchParams.get('q') || '');
 			let list = [...items.values()].filter(item => !item.trashed && item.name !== '.password');
-			if (query.parents.length) list = list.filter(item => query.parents.some(parent => item.parents.includes(parent)));
+			if (query.parents.length) list = list.filter(item => query.parents.some(parent => item.parents.includes(parent === 'root' ? realRootId : parent)));
 			if (query.folderOnly) list = list.filter(item => item.mimeType === FOLDER);
 			if (query.name !== null) list = list.filter(item => item.name === query.name);
 			for (const word of query.words) list = list.filter(item => item.name.includes(word));
@@ -244,8 +248,9 @@ export function createFakeDrive(options = {}) {
 
 		if (kind === 'files.get') {
 			const id = url.pathname.split('/')[4];
-			// The root folder always exists, whatever the configured ID.
-			const item = items.get(id) || (id === rootId ? { id, name: 'My Drive', mimeType: FOLDER } : undefined);
+			// The root folder always exists, whatever the configured ID; the
+			// "root" alias answers with the resolved root folder's ID.
+			const item = items.get(id) || (id === rootId ? { id: realRootId, name: 'My Drive', mimeType: FOLDER, parents: [] } : undefined);
 			if (!item) return driveError(404, 'notFound', 'File not found: ' + id);
 			if (url.searchParams.get('alt') === 'media') return new Response('media of ' + item.name);
 			if (url.searchParams.has('mimeType')) return new Response('export of ' + item.name);
