@@ -44,8 +44,6 @@ const iconSprite = `
 	<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9.4 6.4 5.6 5.6-5.6 5.6"/></symbol>
 	<symbol id="i-collapse" viewBox="0 0 24 24"><path d="m6.4 9.4 5.6 5.6 5.6-5.6"/></symbol>
 	<symbol id="i-external" viewBox="0 0 24 24"><path d="M13.6 5.4h5v5M18.6 5.4 11 13"/><path d="M16 14v4.2c0 .9-.7 1.6-1.6 1.6H6c-.9 0-1.6-.7-1.6-1.6V8.2c0-.9.7-1.6 1.6-1.6h4"/></symbol>
-	<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.8"/><path d="M12 3.6v2M12 18.4v2M3.6 12h2M18.4 12h2M6.1 6.1l1.4 1.4M16.5 16.5l1.4 1.4M17.9 6.1l-1.4 1.4M7.5 16.5 6.1 17.9"/></symbol>
-	<symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.4 13.4A7.4 7.4 0 0 1 10.6 4.6a7.4 7.4 0 1 0 8.8 8.8z"/></symbol>
 	<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.4" y="10.6" width="13.2" height="9" rx="1.6"/><path d="M8.4 10.6V8.4a3.6 3.6 0 0 1 7.2 0v2.2"/></symbol>
 	<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.6 3 19.4h18z"/><path d="M12 10.4v3.6M12 17.2v.2"/></symbol>
 	<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4.4v4.2h-4.2"/></symbol>
@@ -74,7 +72,6 @@ document.body.innerHTML = iconSprite + `
 		<header class="topbar">
 			<a class="brand" href="__ROOT__"><img src="/assets/rin-mark.png" width="26" height="26" alt="">Rin Index</a>
 			<div class="topbar-actions">
-				<button class="icon-btn theme-toggle" type="button" aria-label="Switch theme"></button>
 				<a class="source-link" href="https://github.com/Chowdhury-Siam/Google-Index">Source ${'' /* icon appended in JS */}</a>
 				<button class="icon-btn admin-lock" type="button" aria-label="Admin sign-in" hidden></button>
 			</div>
@@ -147,7 +144,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="modal-head">
 				<h2 id="signin-title">Admin sign-in</h2>
 				<span class="spacer"></span>
-				<button class="icon-btn signin-close" type="button" aria-label="Close"></button>
+				<button class="icon-btn signin-close" type="button" data-close aria-label="Close"></button>
 			</div>
 			<form class="modal-body signin-form dialog-form">
 				<p class="signin-note">The administrator pair from this index's settings unlocks uploads and file management.</p>
@@ -171,7 +168,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="modal-head">
 				<h2 id="mkdir-title">New folder</h2>
 				<span class="spacer"></span>
-				<button class="icon-btn mkdir-close" type="button" aria-label="Close"></button>
+				<button class="icon-btn mkdir-close" type="button" data-close aria-label="Close"></button>
 			</div>
 			<form class="modal-body dialog-form mkdir-form">
 				<div class="field">
@@ -192,7 +189,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="modal-head">
 				<h2 id="rename-title">Rename</h2>
 				<span class="spacer"></span>
-				<button class="icon-btn rename-close" type="button" aria-label="Close"></button>
+				<button class="icon-btn rename-close" type="button" data-close aria-label="Close"></button>
 			</div>
 			<form class="modal-body dialog-form rename-form">
 				<div class="field">
@@ -214,7 +211,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="modal-head">
 				<h2 id="delete-title">Delete</h2>
 				<span class="spacer"></span>
-				<button class="icon-btn delete-close" type="button" aria-label="Close"></button>
+				<button class="icon-btn delete-close" type="button" data-close aria-label="Close"></button>
 			</div>
 			<form class="modal-body dialog-form delete-form">
 				<p class="prompt-text"></p>
@@ -234,7 +231,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="modal-head">
 				<h2 id="move-title">Move</h2>
 				<span class="spacer"></span>
-				<button class="icon-btn move-close" type="button" aria-label="Close"></button>
+				<button class="icon-btn move-close" type="button" data-close aria-label="Close"></button>
 			</div>
 			<div class="move-bar">
 				<nav class="move-crumbs" aria-label="Destination folder"></nav>
@@ -268,13 +265,15 @@ document.body.innerHTML = iconSprite + `
 		</div>
 	</div>
 
-	<div class="upload-panel" hidden role="region" aria-label="Upload progress">
-		<div class="upload-head">
-			<h2>Uploads</h2>
-			<button class="icon-btn upload-minimize" type="button" aria-label="Fold uploads away"></button>
-			<button class="icon-btn upload-close" type="button" aria-label="Close uploads"></button>
+	<div class="modal-backdrop upload-backdrop" hidden>
+		<div class="modal upload-panel" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+			<div class="upload-head">
+				<h2 id="upload-title">Uploads</h2>
+				<button class="icon-btn upload-minimize" type="button" data-close aria-label="Fold uploads away"></button>
+				<button class="icon-btn upload-close" type="button" aria-label="Clear finished uploads"></button>
+			</div>
+			<div class="upload-body"></div>
 		</div>
-		<div class="upload-body"></div>
 	</div>
 
 	<button class="upload-dock" type="button" hidden></button>
@@ -283,7 +282,6 @@ document.body.innerHTML = iconSprite + `
 
 for (const link of document.querySelectorAll('a[href="__ROOT__"]')) link.href = root;
 document.querySelector('.source-link').append(icon('external'));
-document.querySelector('.theme-toggle').append(icon('moon'));
 document.querySelector('.signin-close').append(icon('x'));
 document.querySelector('.preview-copy').append(icon('link'));
 document.querySelector('.preview-download').append(icon('download'));
@@ -313,32 +311,6 @@ function create(tag, className, text) {
 
 function nameFromPath(segment) {
 	try { return decodeURIComponent(segment); } catch { return segment; }
-}
-
-/* ------------------------------------------------------------------ theme --- */
-
-const themeToggle = document.querySelector('.theme-toggle');
-let themePreferenceSaved = false;
-try { themePreferenceSaved = Boolean(localStorage.getItem('rin-theme')); } catch {}
-
-function applyTheme(theme, save) {
-	document.documentElement.dataset.theme = theme;
-	themeToggle.replaceChildren(icon(theme === 'dark' ? 'sun' : 'moon'));
-	themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
-	if (save) {
-		try { localStorage.setItem('rin-theme', theme); } catch {}
-		themePreferenceSaved = true;
-	}
-}
-
-themeToggle.addEventListener('click', () => {
-	applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
-});
-applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light', false);
-if (!themePreferenceSaved && window.matchMedia) {
-	const media = matchMedia('(prefers-color-scheme: dark)');
-	const follow = () => { if (!themePreferenceSaved) applyTheme(media.matches ? 'dark' : 'light', false); };
-	if (media.addEventListener) media.addEventListener('change', follow);
 }
 
 /* -------------------------------------------------------------- headings --- */
@@ -483,11 +455,18 @@ function downloadIconLink(filePath, fileName) {
 /* ------------------------------------------------------------- data load --- */
 
 async function post(endpoint, fields = {}) {
-	const response = await fetch(endpoint, {
-		method: 'POST',
-		headers: { 'X-Requested-With': CLIENT_MARKER },
-		body: new URLSearchParams(fields)
-	});
+	let response;
+	try {
+		response = await fetch(endpoint, {
+			method: 'POST',
+			headers: { 'X-Requested-With': CLIENT_MARKER },
+			body: new URLSearchParams(fields)
+		});
+	} catch {
+		// A refused or dropped connection reaches fetch() callers as a bare
+		// TypeError whose message names no site; say what happened instead.
+		throw new Error('Rin Index could not be reached. Check the connection and try again.');
+	}
 	if (!response.ok) throw new Error('Request failed. Try again in a moment.');
 	return response;
 }
@@ -807,7 +786,9 @@ function refreshListing() {
 /* --------------------------------------------------------- menus & layers --- */
 
 // Overlays stack: Escape closes the top one, whether that is a menu, a
-// dialog, the upload panel or the preview.
+// dialog, the uploads dialog or the preview. A dialog that is waiting on an
+// answer to a request that changes files refuses dismissal, so an important
+// operation cannot be dismissed by accident while it runs.
 const layers = [];
 function pushLayer(close) { layers.push(close); }
 function removeLayer(close) {
@@ -823,6 +804,7 @@ document.addEventListener('keydown', event => {
 	const top = layers.at(-1);
 	if (top) {
 		event.preventDefault();
+		if (top.busy) return;
 		closeLayer(top);
 	}
 });
@@ -908,26 +890,85 @@ function showMenu(anchor, items) {
 	window.addEventListener('resize', closeMenu, { once: true });
 }
 
+// Every dialog shares one behaviour: it opens centered over a dimmed page,
+// traps keyboard focus inside itself, puts focus on its first control, and
+// hands focus back to the control that opened it. The head close button and
+// every [data-close] button dismiss it, and so does a click on the backdrop
+// while nothing is in flight: a dialog whose request is running keeps itself
+// open (setBusy) so a stray click cannot dismiss an important operation.
+function focusablesIn(modal) {
+	return [...modal.querySelectorAll('button, [href], input, select, textarea')]
+		.filter(element => !element.disabled && element.offsetParent !== null);
+}
+
 function bindDialog(backdrop, { onOpen, onClose } = {}) {
+	const modal = backdrop.querySelector('.modal');
 	let closer = null;
+	let busy = false;
+	let restoreFocus = null;
+	const trap = event => {
+		if (event.key !== 'Tab') return;
+		const items = focusablesIn(modal);
+		if (!items.length) return;
+		const first = items[0];
+		const last = items[items.length - 1];
+		const inside = items.includes(document.activeElement);
+		if (!inside) {
+			event.preventDefault();
+			first.focus();
+		} else if (event.shiftKey && document.activeElement === first) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	};
 	const shut = () => { if (closer) closeLayer(closer); };
+	// The busy flag travels on the layer closer itself, because that is what
+	// the Escape handler and the stack look at; a dialog whose request is in
+	// flight keeps every dismissal path off except a close by code.
+	const setBusy = value => {
+		busy = Boolean(value);
+		if (closer) closer.busy = busy;
+	};
 	backdrop.addEventListener('click', event => {
-		if (event.target === backdrop) shut();
+		if (event.target === backdrop && !busy) shut();
 	});
 	for (const button of backdrop.querySelectorAll('[data-close]')) {
-		button.addEventListener('click', shut);
+		button.addEventListener('click', () => { if (!busy) shut(); });
 	}
+	// The trap stays attached for the dialog's whole life: keydown events only
+	// reach it from controls inside the backdrop, and a hidden dialog holds no
+	// focus, so a closed one never intercepts the page's Tab key.
+	backdrop.addEventListener('keydown', trap);
 	return {
 		open() {
 			backdrop.hidden = false;
+			restoreFocus = document.activeElement;
 			closer = () => {
 				backdrop.hidden = true;
+				busy = false;
 				if (onClose) onClose();
+				if (restoreFocus && document.body.contains(restoreFocus)) restoreFocus.focus();
+				restoreFocus = null;
 			};
+			busy = false;
+			closer.busy = false;
 			pushLayer(closer);
 			if (onOpen) onOpen();
+			// The opener usually focuses the field itself; otherwise a field
+			// takes focus, or Cancel for confirmations — the safe choice — so
+			// the dialog is operable from the keyboard right away.
+			if (!modal.contains(document.activeElement)) {
+				const target = modal.querySelector('input:not([type="hidden"])')
+					|| modal.querySelector('button[data-close]')
+					|| focusablesIn(modal)[0];
+				if (target) target.focus();
+			}
 		},
 		close: shut,
+		setBusy,
 		isOpen: () => !backdrop.hidden
 	};
 }
@@ -1012,6 +1053,7 @@ mkdirForm.addEventListener('submit', async event => {
 	if (!name) return showFormError(mkdirError, 'Use a name without “/” or control characters.');
 	const submit = mkdirForm.querySelector('[type="submit"]');
 	submit.disabled = true;
+	mkdirDialog.setBusy(true);
 	try {
 		const data = await apiJson(path + '?manage=mkdir', { name });
 		mkdirDialog.close();
@@ -1022,6 +1064,7 @@ mkdirForm.addEventListener('submit', async event => {
 		if (!error.signin) showFormError(mkdirError, error.message);
 	} finally {
 		submit.disabled = false;
+		mkdirDialog.setBusy(false);
 	}
 });
 
@@ -1052,6 +1095,7 @@ renameForm.addEventListener('submit', async event => {
 	if (name === renameTarget.file.name) { renameDialog.close(); return; }
 	const submit = renameForm.querySelector('[type="submit"]');
 	submit.disabled = true;
+	renameDialog.setBusy(true);
 	try {
 		const data = await apiJson(renameTarget.folderUrl + '?manage=rename', { id: renameTarget.file.id, to: name });
 		renameDialog.close();
@@ -1061,6 +1105,7 @@ renameForm.addEventListener('submit', async event => {
 		if (!error.signin) showFormError(renameError, error.message);
 	} finally {
 		submit.disabled = false;
+		renameDialog.setBusy(false);
 	}
 });
 
@@ -1089,6 +1134,7 @@ deleteForm.addEventListener('submit', async event => {
 	deleteError.hidden = true;
 	const submit = deleteForm.querySelector('[type="submit"]');
 	submit.disabled = true;
+	deleteDialog.setBusy(true);
 	try {
 		const merged = await runBatched(deletePlan.folderUrl, 'delete', deletePlan.items.map(item => item.id));
 		deleteDialog.close();
@@ -1101,6 +1147,7 @@ deleteForm.addEventListener('submit', async event => {
 		if (!error.signin) showFormError(deleteError, error.message);
 	} finally {
 		submit.disabled = false;
+		deleteDialog.setBusy(false);
 	}
 });
 
@@ -1232,6 +1279,7 @@ moveHere.addEventListener('click', async () => {
 	if (!moveState || moveState.busy) return;
 	moveState.busy = true;
 	moveHere.disabled = true;
+	moveDialog.setBusy(true);
 	moveStatus.textContent = 'Moving…';
 	try {
 		const merged = await runBatched(moveState.folderUrl, 'move', moveState.items.map(item => item.id), moveState.pickerPath);
@@ -1246,6 +1294,7 @@ moveHere.addEventListener('click', async () => {
 		if (moveState) moveState.busy = false;
 	} finally {
 		moveHere.disabled = false;
+		moveDialog.setBusy(false);
 	}
 });
 
@@ -1467,6 +1516,7 @@ signinForm.addEventListener('submit', async event => {
 	const submit = signinForm.querySelector('[type="submit"]');
 	submit.disabled = true;
 	signinBusy.hidden = false;
+	signinDialog.setBusy(true);
 	try {
 		const response = await fetch(sessionUrl + 'login', {
 			method: 'POST',
@@ -1490,6 +1540,7 @@ signinForm.addEventListener('submit', async event => {
 	} finally {
 		submit.disabled = false;
 		signinBusy.hidden = true;
+		signinDialog.setBusy(false);
 	}
 });
 
@@ -1526,9 +1577,13 @@ if (canAdmin) {
 // so credentials, tokens, and session URLs never appear in page responses.
 // The engine (upload-engine.js) drives resumable chunks with live speed and
 // ETA and exposes pause / resume / cancel; this layer keeps any number of
-// batches in one floating panel and refreshes the listing when they finish.
-const uploadPanel = document.querySelector('.upload-panel');
+// batches in one centered dialog and refreshes the listing when they finish.
+// The dialog is dismissable at any time — Escape, the fold button, or a click
+// on the dimmed page folds it into the dock — because uploads keep running
+// either way; only the clear button waits for every batch to settle.
+const uploadBackdrop = document.querySelector('.upload-backdrop');
 const uploadBody = document.querySelector('.upload-body');
+const uploadCloseBtn = document.querySelector('.upload-close');
 const uploadDock = document.querySelector('.upload-dock');
 const newButton = document.querySelector('.new-button');
 const uploadInput = document.querySelector('.upload-input');
@@ -1604,6 +1659,9 @@ function xhrTransport(url, init, onProgress) {
 
 function formatSpeed(bytesPerSecond) {
 	if (bytesPerSecond == null || !Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
+	// Kilobytes read honestly on slow lines, where "0.1 MB/s" hides how the
+	// transfer is really doing; megabytes keep one decimal above that.
+	if (bytesPerSecond < 1024 * 1024) return Math.max(1, Math.round(bytesPerSecond / 1024)) + ' KB/s';
 	return (bytesPerSecond / (1024 * 1024)).toFixed(1) + ' MB/s';
 }
 
@@ -1699,6 +1757,12 @@ function batchRow(batch, index) {
 	pauseBtn.type = 'button';
 	pauseBtn.title = 'Pause';
 	pauseBtn.setAttribute('aria-label', 'Pause ' + (record ? record.name : 'file'));
+	// Both icons are built once and toggled, so a progress frame never has to
+	// build SVG elements to redraw a row that is already on screen.
+	const pauseIcon = icon('pause');
+	const playIcon = icon('play');
+	playIcon.hidden = true;
+	pauseBtn.append(pauseIcon, playIcon);
 	pauseBtn.addEventListener('click', () => {
 		if (!batch.handle) return;
 		const current = batch.states[index];
@@ -1733,7 +1797,7 @@ function batchRow(batch, index) {
 	noteEl.hidden = true;
 	item.append(line, bar, noteEl);
 	batch.listEl.append(item);
-	batch.rows[index] = { item, nameEl, stateEl, noteEl, fill, pauseBtn, cancelBtn };
+	batch.rows[index] = { item, nameEl, stateEl, noteEl, fill, pauseBtn, cancelBtn, pauseIcon, playIcon };
 	return batch.rows[index];
 }
 
@@ -1869,7 +1933,8 @@ function renderBatch(batch) {
 		const final = Boolean(FINAL_STATES[record.state]);
 		const isPaused = record.state === 'paused';
 		row.pauseBtn.hidden = final || record.state === 'cancelling' || record.state === 'pausing';
-		row.pauseBtn.replaceChildren(icon(isPaused ? 'play' : 'pause'));
+		row.pauseIcon.hidden = isPaused;
+		row.playIcon.hidden = !isPaused;
 		row.pauseBtn.title = isPaused ? 'Resume' : 'Pause';
 		row.pauseBtn.setAttribute('aria-label', (isPaused ? 'Resume ' : 'Pause ') + record.name);
 		row.pauseBtn.disabled = isPaused && record.reason === 'stalled' && navigator.onLine === false;
@@ -1915,13 +1980,20 @@ function renderBatch(batch) {
 
 function renderPanelButtons() {
 	const active = batches.some(batch => !batch.done);
-	const closeBtn = document.querySelector('.upload-close');
-	closeBtn.disabled = active;
-	closeBtn.title = active ? 'Uploads are still running' : 'Clear finished uploads';
+	uploadCloseBtn.disabled = active;
+	uploadCloseBtn.title = active ? 'Uploads are still running' : 'Clear finished uploads';
 }
 
+// The dock is one persistent set of nodes whose text and bar are updated in
+// place, so a running upload never rebuilds it frame after frame.
+const dockLabel = create('span');
+const dockFill = create('div', 'bar-fill');
+const dockBar = create('div', 'bar');
+dockBar.append(dockFill);
+uploadDock.replaceChildren(icon('upload'), dockLabel, dockBar);
+
 function renderDock() {
-	const show = uploadPanel.hidden && !uploadsDismissed && batches.length > 0;
+	const show = uploadBackdrop.hidden && !uploadsDismissed && batches.length > 0;
 	uploadDock.hidden = !show;
 	if (!show) return;
 	let total = 0;
@@ -1937,20 +2009,13 @@ function renderDock() {
 		if (!batch.done) running = true;
 	}
 	const percent = total ? Math.min(100, uploaded / total * 100) : 0;
-	const bar = create('div', 'bar');
-	const fill = create('div', 'bar-fill');
-	fill.style.width = percent.toFixed(1) + '%';
-	bar.append(fill);
-	uploadDock.replaceChildren(
-		icon('upload'),
-		create('span', '', (running ? Math.round(percent) + '%' : 'Done') + ' · ' + (running ? (formatSpeed(speed) || 'starting') : 'uploads')),
-		bar
-	);
+	dockFill.style.width = percent.toFixed(1) + '%';
+	dockLabel.textContent = (running ? Math.round(percent) + '%' : 'Done') + ' · ' + (running ? (formatSpeed(speed) || 'starting') : 'uploads');
 }
 
 function openUploadPanel() {
 	uploadsDismissed = false;
-	uploadPanel.hidden = false;
+	uploadBackdrop.hidden = false;
 	uploadDock.hidden = true;
 	if (!uploadPanelCloser) {
 		uploadPanelCloser = minimizeUploads;
@@ -1960,7 +2025,7 @@ function openUploadPanel() {
 }
 
 function minimizeUploads() {
-	uploadPanel.hidden = true;
+	uploadBackdrop.hidden = true;
 	if (uploadPanelCloser) {
 		removeLayer(uploadPanelCloser);
 		uploadPanelCloser = null;
@@ -1968,13 +2033,16 @@ function minimizeUploads() {
 	renderDock();
 }
 
+uploadBackdrop.addEventListener('click', event => {
+	if (event.target === uploadBackdrop) minimizeUploads();
+});
 document.querySelector('.upload-minimize').addEventListener('click', minimizeUploads);
-document.querySelector('.upload-close').addEventListener('click', () => {
+uploadCloseBtn.addEventListener('click', () => {
 	if (batches.some(batch => !batch.done)) return;
 	for (const batch of batches) batch.section.remove();
 	batches.length = 0;
 	uploadsDismissed = true;
-	uploadPanel.hidden = true;
+	uploadBackdrop.hidden = true;
 	if (uploadPanelCloser) {
 		removeLayer(uploadPanelCloser);
 		uploadPanelCloser = null;
