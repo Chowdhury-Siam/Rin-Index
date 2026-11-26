@@ -60,23 +60,45 @@ function unescapeQueryValue(value) {
 	return value.replaceAll("\\'", "'").replaceAll('\\\\', '\\');
 }
 
-/** What a Drive query asks for: parents, an exact name, and "contains" words. */
+/** What a Drive query asks for: parents, an exact name, "contains" words,
+ * and the mimeType / size clauses the structured search filters add. */
 function parseQuery(query) {
 	const parents = [...query.matchAll(/'((?:[^'\\]|\\.)*)' in parents/g)].map(match => unescapeQueryValue(match[1]));
 	const name = /name = '((?:[^'\\]|\\.)*)'/.exec(query);
 	const folderOnly = query.includes("mimeType = '" + FOLDER + "'");
 	const words = [...query.matchAll(/name contains '((?:[^'\\]|\\.)*)'/g)].map(match => unescapeQueryValue(match[1]));
-	return { parents, name: name ? unescapeQueryValue(name[1]) : null, folderOnly, words };
+	const mimeContains = [...query.matchAll(/mimeType contains '([^']*)'/g)].map(match => match[1]);
+	const mimeEquals = [...query.matchAll(/mimeType = '([^']*)'/g)].map(match => match[1]);
+	const above = /size > (\d+)/.exec(query);
+	const below = /size < (\d+)/.exec(query);
+	return {
+		parents,
+		name: name ? unescapeQueryValue(name[1]) : null,
+		folderOnly,
+		words,
+		mimeContains,
+		mimeEquals,
+		sizeAbove: above ? Number(above[1]) : null,
+		sizeBelow: below ? Number(below[1]) : null
+	};
 }
 
-// "folder,name,modifiedTime desc": folders first, then by name, newest first
-// among equal names.
+// "folder,name,modifiedTime desc": folders first, then each key in order with
+// its own direction.
 function compareItems(orderBy) {
+	const keys = [...String(orderBy || '').matchAll(/(name|size|modifiedTime)( (desc))?/g)]
+		.map(match => ({ key: match[1], desc: Boolean(match[3]) }));
 	const byName = (a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
 	return (a, b) => {
 		const folders = Number(b.mimeType === FOLDER) - Number(a.mimeType === FOLDER);
 		if (folders) return folders;
-		if (!orderBy?.includes('name')) return 0;
+		for (const { key, desc } of keys) {
+			let result = 0;
+			if (key === 'name') result = byName(a, b);
+			else if (key === 'size') result = (Number(a.size) || 0) - (Number(b.size) || 0);
+			else result = (a.modifiedTime || '').localeCompare(b.modifiedTime || '');
+			if (result) return desc ? -result : result;
+		}
 		return byName(a, b) || (b.modifiedTime || '').localeCompare(a.modifiedTime || '');
 	};
 }
@@ -199,12 +221,15 @@ export function createFakeDrive(options = {}) {
 			: {};
 	}
 
-	async function handle(input, init = {}) {
-		const url = new URL(input);
-		const method = String(init.method || 'GET').toUpperCase();
-		let kind = 'other';
-		if (url.hostname === 'oauth2.googleapis.com') kind = 'token';
-		else if (url.pathname === '/drive/v3/about') kind = 'about.get';
+		async function handle(input, init = {}) {
+			const url = new URL(input);
+			const method = String(init.method || 'GET').toUpperCase();
+			let kind = 'other';
+			if (url.hostname === 'oauth2.googleapis.com') kind = 'token';
+			// Drive serves row thumbnails from its image host; the fake answers
+			// with bytes that name the requested render.
+			else if (url.hostname === 'lh3.googleusercontent.com') kind = 'thumb.get';
+			else if (url.pathname === '/drive/v3/about') kind = 'about.get';
 		else if (url.pathname === '/drive/v3/files') kind = method === 'POST' ? 'files.create' : 'files.list';
 		else if (url.pathname.startsWith('/drive/v3/files/')) kind = method === 'GET' ? 'files.get' : `files.${{ POST: 'create', PATCH: 'update', DELETE: 'delete' }[method] || method.toLowerCase()}`;
 		// The session URL shares the path of the session start; the method
@@ -228,6 +253,13 @@ export function createFakeDrive(options = {}) {
 
 		if (kind === 'about.get') return Response.json({ storageQuota: { ...drive.quota } });
 
+		if (kind === 'thumb.get') {
+			if ((init.headers || {}).authorization !== 'Bearer test-access') {
+				return driveError(401, 'authError', 'The thumbnail request carried no OAuth token.');
+			}
+			return new Response('thumb-bytes-of ' + url.pathname, { headers: { 'Content-Type': 'image/jpeg' } });
+		}
+
 		if (kind === 'files.list') {
 			const query = parseQuery(url.searchParams.get('q') || '');
 			let list = [...items.values()].filter(item => !item.trashed && item.name !== '.password');
@@ -235,6 +267,10 @@ export function createFakeDrive(options = {}) {
 			if (query.folderOnly) list = list.filter(item => item.mimeType === FOLDER);
 			if (query.name !== null) list = list.filter(item => item.name === query.name);
 			for (const word of query.words) list = list.filter(item => item.name.includes(word));
+			if (query.mimeContains.length) list = list.filter(item => query.mimeContains.every(part => String(item.mimeType || '').includes(part)));
+			if (query.mimeEquals.length) list = list.filter(item => query.mimeEquals.includes(item.mimeType));
+			if (query.sizeAbove != null) list = list.filter(item => Number(item.size) > query.sizeAbove);
+			if (query.sizeBelow != null) list = list.filter(item => Number(item.size) < query.sizeBelow);
 			list.sort(compareItems(url.searchParams.get('orderBy')));
 			const size = drive.pageSize || Number(url.searchParams.get('pageSize')) || 100;
 			const start = Number(url.searchParams.get('pageToken')) || 0;
