@@ -838,12 +838,14 @@ svg.icon {
 	grid-template-columns: 28px minmax(0, 1fr) auto;
 }
 
-/* The head's side block lines up with the rows' side block below it. */
+/* The head's side block lines up with the rows' side block below it: 112 +
+ * 16 + 76 + 16 + 100 leaves room for the three row action buttons, so the
+ * date and size columns never have to shrink to make them fit. */
 .list-head-side {
 	display: flex;
 	align-items: center;
 	gap: var(--s4);
-	width: 288px;
+	width: 320px;
 	flex: none;
 }
 
@@ -859,6 +861,9 @@ svg.icon {
 	width: 76px;
 	justify-content: flex-end;
 	text-align: right;
+	/* The label shares its right edge with the size values below it, whose
+	 * span has no button padding to eat into. */
+	padding-right: 0;
 }
 
 /* The column labels sort the listing; the active one carries the state. */
@@ -1035,7 +1040,7 @@ svg.icon {
 	gap: var(--s4);
 	/* A fixed side keeps every row's date, size, and actions in one column,
 	 * whether or not this row happens to carry actions. */
-	width: 288px;
+	width: 320px;
 	flex: none;
 }
 
@@ -1048,10 +1053,12 @@ svg.icon {
 
 .row-date {
 	width: 112px;
+	flex: none;
 }
 
 .row-size {
 	width: 76px;
+	flex: none;
 	text-align: right;
 }
 
@@ -1060,6 +1067,7 @@ svg.icon {
 	align-items: center;
 	gap: 2px;
 	margin-left: auto;
+	flex: none;
 }
 
 /* Row buttons stay out of sight until the row is pointed at, so an idle
