@@ -2,7 +2,7 @@
 * A Script Redesigned by Parveen Bhadoo from GOIndex at https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index
 */
 import { folderMimeType, readDriveRoot, readSettings, refreshGoogleToken } from './settings.mjs';
-import { adminDenied, handleAdminSession, handleUploadRequest, isAdminRequest } from './uploads.mjs';
+import { adminDenied, handleAdminSession, handleUploadRequest, isAdminRequest, safeEqual } from './uploads.mjs';
 import { handleManageRequest, handleStorageRequest } from './manage.mjs';
 
 const googleMime = 'application/vnd.google-apps.';
@@ -120,13 +120,11 @@ function html(order, model) {
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f3f3">
-	<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c090b">
+	<meta name="theme-color" content="#0c090b">
 	<meta name="robots" content="noindex">
 	<title>${title.replaceAll('&', '&amp;').replaceAll('<', '&lt;')}</title>
 	<link rel="icon" href="/assets/rin-mark.png" type="image/png">
 	<link rel="stylesheet" href="/assets/css/rin-index.css">
-	<script>try{var s=localStorage.getItem('rin-theme');document.documentElement.dataset.theme=s==='light'?'light':'dark';}catch(e){}</script>
 	<script>window.RIN_INDEX = ${scriptJson({ order, name, model })};</script>
 	<script src="/assets/vendor/markdown-it.min.js" defer></script>
 	<script src="/assets/js/upload-engine.js" defer></script>
@@ -543,7 +541,13 @@ class googleDrive {
 		if (match) {
 			try {
 				const bytes = Uint8Array.from(atob(match[1]), char => char.charCodeAt(0));
-				if (new TextDecoder().decode(bytes) === `${user}:${pass}`) return null;
+				const decoded = new TextDecoder().decode(bytes);
+				const separator = decoded.indexOf(':');
+				// Both halves are compared in constant time, the same way the
+				// admin pair is, so a caller cannot learn either half by timing.
+				if (separator >= 0
+					&& await safeEqual(decoded.slice(0, separator), user)
+					&& await safeEqual(decoded.slice(separator + 1), pass)) return null;
 			} catch {}
 		}
 		// An admin, signed in with the pair or holding a session, may browse too.
@@ -897,7 +901,10 @@ class googleDrive {
 		let c_path = '/';
 		let c_id = this.paths[c_path];
 
-		let arr = path.trim('/').split('/');
+		// Leading and trailing slashes off, without touching the shared
+		// String prototype (an override there would leak into every module
+		// of the isolate).
+		const arr = path.replace(/^\/+|\/+$/g, '').split('/');
 		for (let name of arr) {
 			c_path += name + '/';
 
@@ -953,7 +960,6 @@ class googleDrive {
 		let response;
 		for (let i = 0; i < 3; i++) {
 			response = await fetch(url, requestOption);
-			console.log(response.status);
 			if (response.status != 403) {
 				break;
 			}
@@ -980,21 +986,6 @@ class googleDrive {
 	}
 
 	sleep(ms) {
-		return new Promise(function (resolve, reject) {
-			let i = 0;
-			setTimeout(function () {
-				console.log('sleep' + ms);
-				i++;
-				if (i >= 2) reject(new Error('i>=2'));
-				else resolve(i);
-			}, ms);
-		})
+		return new Promise(resolve => setTimeout(resolve, ms));
 	}
 }
-
-String.prototype.trim = function (char) {
-	if (char) {
-		return this.replace(new RegExp('^\\' + char + '+|\\' + char + '+$', 'g'), '');
-	}
-	return this.replace(/^\s+|\s+$/g, '');
-};
