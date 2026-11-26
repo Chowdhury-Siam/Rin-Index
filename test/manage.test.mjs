@@ -511,9 +511,15 @@ test('an admin session survives navigation without storing the password', async 
 
 	// A session that was altered or cut short is worth nothing.
 	const [expires, signature] = session.Cookie.split('=')[1].split('.');
+	// The last base64url character holds only two meaningful bits; flipping
+	// "A" to "B" would change ignored padding bits and decode to the very
+	// same HMAC. Bit 4 of the character is one the decoder reads, so this
+	// flip (or a character outside the alphabet, which the token check
+	// rejects) always changes the signature the Worker verifies.
+	const flipped = String.fromCharCode(signature.charCodeAt(42) ^ 16);
 	const forged = [
 		`rin_admin_session=${Number(expires) + 1}.${signature}`,
-		`rin_admin_session=${expires}.${signature.slice(0, 42)}${signature.at(42) === 'A' ? 'B' : 'A'}`,
+		`rin_admin_session=${expires}.${signature.slice(0, 42)}${flipped}`,
 		`rin_admin_session=${expires}`,
 		'rin_admin_session=' + basic('admin', 'admin-pass').slice(6)
 	];
@@ -647,5 +653,24 @@ test('a finished upload drops the cached listing', async t => {
 	assert.equal((await (await chunk(partial, 0, 5, 'Half ')).json()).done, false);
 	await list();
 	assert.equal(drive.count('files.list'), settled, 'an unfinished upload changes nothing yet');
+});
+
+test('an index rooted at Drive\u2019s "root" alias compares and writes through the resolved root', async t => {
+	const { drive, manage } = await setup(t, { driveOptions: { realRootId: '0ArealRoot99' } });
+	// The items sit in the resolved root, as real Drive metadata reports
+	// them, while the configured root stays the "root" alias.
+	const notes = drive.find('Notes.md', '0ArealRoot99');
+	assert.ok(notes, 'the seeded note sits in the resolved root');
+
+	const renamed = await expect(await manage('rename', { id: notes.id, to: 'Readme.md' }), 200);
+	assert.equal(renamed.item.name, 'Readme.md');
+
+	const made = await expect(await manage('mkdir', { name: 'Season 2' }), 200);
+	assert.equal(made.existed, false);
+	assert.equal(drive.find('Season 2', '0ArealRoot99').mimeType, folderMimeType);
+
+	const gone = await expect(await manage('delete', { ids: [made.folder.id] }), 200);
+	assert.equal(gone.changed, 1);
+	assert.equal(drive.find('Season 2', '0ArealRoot99').trashed, true);
 });
 
