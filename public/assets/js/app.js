@@ -2966,6 +2966,11 @@ function subtitleLabel(fileName, stem) {
 	return middle || 'Subtitles';
 }
 
+function base64Url(value) {
+	// mpv-handler takes its URL base64url-encoded.
+	return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 async function playerPage() {
 	const fileName = nameFromPath(path);
 	const kind = kindFromName(fileName);
@@ -3135,7 +3140,36 @@ async function playerPage() {
 			note.textContent = '';
 		}, 3500);
 	}
-	player.append(head, stage, note);
+
+	// Handing the stream to a local player: each button launches the
+	// installed app through its own URL scheme (the browser asks before it
+	// opens one), and the copied URL works in any player's "open network
+	// stream" — the way around a codec this browser cannot decode.
+	const streamUrl = location.origin + path;
+	const external = create('div', 'player-external');
+	const externalLabel = create('span', 'player-external-label', 'Open in an external player');
+	const externalButtons = create('div', 'player-external-buttons');
+	const launch = [
+		['VLC', 'vlc://' + streamUrl],
+		['mpv', 'mpv://' + base64Url(streamUrl) + '/'],
+		['PotPlayer', 'potplayer://' + streamUrl],
+		['IINA', 'iina://weblink?url=' + encodeURIComponent(streamUrl)]
+	];
+	for (const [label, href] of launch) {
+		const link = create('a', 'button button-secondary player-external-btn', label);
+		link.href = href;
+		link.title = 'Open this stream in ' + label;
+		externalButtons.append(link);
+	}
+	const copyStream = create('button', 'button button-ghost player-external-btn', 'Copy stream URL');
+	copyStream.type = 'button';
+	copyStream.title = 'Copy the direct URL for any player';
+	copyStream.addEventListener('click', () => copyDirectUrl(path, file.name || fileName));
+	externalButtons.append(copyStream);
+	const externalHint = create('p', 'player-external-hint',
+		'Your browser asks before it launches an app. If nothing opens, copy the URL and open it from the player\u2019s \u201cOpen network stream\u201d (VLC: Media \u2192 Open Network Stream).');
+	external.append(externalLabel, externalButtons, externalHint);
+	player.append(head, stage, external, note);
 
 	const firstSection = document.querySelector('#main .pagehead');
 	firstSection.after(player);
@@ -3356,7 +3390,7 @@ async function playerPage() {
 		const cause = code === 4 ? 'its codec' : 'a network or decode error';
 		failed.replaceChildren(
 			create('p', '', 'This browser cannot play this file — ' + cause + ' is not supported here.'),
-			create('p', '', 'Download it and open it in a local player, or try a Chromium-based browser.')
+			create('p', '', 'Open it in an external player below, download it, or try a Chromium-based browser.')
 		);
 		failed.hidden = false;
 		controls.hidden = true;
