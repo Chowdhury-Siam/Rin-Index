@@ -64,7 +64,10 @@ async function setup(t, { workerEnv = adminEnv, driveOptions = {} } = {}) {
 		search: (q, auth = adminAuth) => post('/0:search', { q, page_index: '0' }, auth),
 		names: data => data.data.files.map(file => file.name),
 		writes: () => drive.calls.filter(call => /^(files\.(create|update|delete)|session\.)/.test(call.kind)),
-		lastList: () => drive.calls.filter(call => call.kind === 'files.list').at(-1)
+		// The folder-size walk batches its parents into a query that starts
+		// with "(", so those calls are not listings.
+		lastList: () => drive.calls.filter(call => call.kind === 'files.list'
+			&& !String(call.query.get('q') || '').startsWith('(')).at(-1)
 	};
 }
 
