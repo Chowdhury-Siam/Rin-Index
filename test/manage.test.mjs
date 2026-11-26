@@ -587,11 +587,11 @@ test('listings tell an admin what may be done with each item, and only an admin'
 	drive.pageSize = 1;
 	const admin = await list();
 	assert.equal(lastList().query.get('fields'),
-		'nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload,canRename,canTrash,canDelete,canMoveItemWithinDrive))');
+		'nextPageToken, files(id, name, mimeType, size, modifiedTime, thumbnailLink, capabilities(canDownload,canRename,canTrash,canDelete,canMoveItemWithinDrive))');
 	assert.deepEqual(admin.data.files[0].capabilities, { canDownload: true, canRename: true, canTrash: true, canDelete: true, canMoveItemWithinDrive: true });
 
 	const page = await list('/0:/', { auth: null });
-	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size, modifiedTime, capabilities(canDownload))');
+	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size, modifiedTime, thumbnailLink, capabilities(canDownload))');
 	assert.deepEqual(page.data.files[0].capabilities, { canDownload: true }, 'no management fields for anyone else');
 
 	// Both first pages are cached, each with its own fields.
@@ -604,10 +604,10 @@ test('listings tell an admin what may be done with each item, and only an admin'
 
 	// Search results follow the same rule.
 	const found = await search('Episode');
-	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size , modifiedTime, capabilities(canRename,canTrash,canDelete,canMoveItemWithinDrive))');
+	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size , modifiedTime, thumbnailLink, capabilities(canRename,canTrash,canDelete,canMoveItemWithinDrive))');
 	assert.equal(found.data.files[0].capabilities.canRename, true);
 	await search('Episode', null);
-	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size , modifiedTime)');
+	assert.equal(lastList().query.get('fields'), 'nextPageToken, files(id, name, mimeType, size , modifiedTime, thumbnailLink)');
 	assert.equal((await search('Episode', null)).data.files[0].capabilities, undefined);
 
 	// The page itself only tells an admin that they are one.
