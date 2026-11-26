@@ -52,7 +52,10 @@ async function setup(t, { workerEnv = adminEnv } = {}) {
 				...(dir ? { dir } : {})
 			}, authorization),
 		search: (q, authorization = adminAuth, page = 0) => post('/0:search', { q, page_index: String(page) }, authorization),
-		lastList: () => drive.calls.filter(call => call.kind === 'files.list').at(-1),
+		lastList: () => drive.calls.filter(call => call.kind === 'files.list'
+			// The folder-size walk batches its parents into one query that
+			// starts with "(", so those calls are not listings.
+			&& !String(call.query.get('q') || '').startsWith('(')).at(-1),
 		// The root resolution also uses files.list; a folder listing is the
 		// query that names a parent and excludes .password.
 		listingCount: () => drive.calls.filter(call => call.kind === 'files.list'
@@ -111,6 +114,22 @@ test('single-page folders are cached too, so repeat visits skip Drive', async t 
 	await list('/0:/');
 	await list('/0:/');
 	assert.equal(listingCount(), 1, 'one page, one Drive call, however often it is read');
+});
+
+test('a folder row shows the recursive total size of its contents', async t => {
+	const { drive, list } = await setup(t);
+	const walkCount = () => drive.calls.filter(call => call.kind === 'files.list'
+		&& String(call.query.get('q') || '').startsWith('(')).length;
+	const files = (await list('/0:/')).data.files;
+	// Episode 01.mkv + Episode 02.mkv, the folder's whole contents.
+	assert.equal(files.find(file => file.name === 'Season 1').size, 115862272 + 120586240);
+	assert.equal(walkCount(), 1, 'one batched walk reads the subtree');
+	// A repeat view is served whole from the listing cache, walk included.
+	const cached = (await list('/0:/')).data.files;
+	assert.equal(cached.find(file => file.name === 'Season 1').size, 115862272 + 120586240);
+	assert.equal(walkCount(), 1, 'a cached listing does not re-walk');
+	// Drive's own file sizes pass through untouched.
+	assert.equal(files.find(file => file.name === 'Notes.md').size, '120');
 });
 
 test('type: and size: tokens become Drive clauses and the plain words stay name matches', async t => {
