@@ -2800,6 +2800,40 @@ svg.icon {
 	font-size: 0.8rem;
 }
 
+/* The hand-off row under the stage: scheme links launch an installed player,
+ * the ghost button copies the URL any player can open as a network stream. */
+.player-external {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--s1) var(--s2);
+}
+
+.player-external-label {
+	color: var(--text-2);
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.player-external-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--s1);
+}
+
+.player-external .button {
+	padding: 5px 12px;
+	font-size: 0.82rem;
+}
+
+.player-external-hint {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--text-3);
+	font-size: 0.78rem;
+}
+
 @media (max-width: 720px) {
 	.player-head {
 		flex-wrap: wrap;
