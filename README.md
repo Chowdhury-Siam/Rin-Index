@@ -25,7 +25,11 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | Feature | What you can do |
 | --- | --- |
 | **Browse** | Follow folder breadcrumbs and see each item’s type, date, and size on desktop or mobile. |
-| **Search** | Search by name when indexing My Drive or a Shared Drive. |
+| **Sort & filter** | Order the listing by name, date, or size from the column heads or the Sort menu, and narrow the page to folders, images, video, audio, or documents with one tap. |
+| **Shortcuts** | Drive the page by keyboard: / searches, arrows walk the list, Enter opens, Space selects, Delete trashes, N adds, and ? lists every key. |
+| **Recent files** | The clock in the top bar lists the files this browser opened or downloaded most recently, with one click back to each. |
+| **Thumbnails** | Image rows show the render Drive already made, proxied through the Worker so credentials stay server-side, and loaded only as they scroll into view. |
+| **Search** | Search by name when indexing My Drive or a Shared Drive, with type: and size: filters (type:video size:>100MB) that ride the same Drive query and show as removable chips. |
 | **Preview** | Open supported text, image, audio, video, and PDF files in the browser. |
 | **Download** | Download a file from its row or preview page. |
 | **Download files** | Start separate downloads for the files in the current folder and its subfolders. |
@@ -34,12 +38,25 @@ Rin Index gives a Drive folder, Shared Drive, or My Drive a file browser on Clou
 | **Admin sign-in** | Sign in once with the lock icon and stay signed in for eight hours; the password is never kept in the page. |
 | **Upload** | As the admin, upload files, whole folders, or dropped items into the open folder, with a progress dialog showing speed and time remaining for every batch. |
 | **Pause / resume / cancel** | Pause an upload and keep its Google Drive session, resume from the byte Drive confirmed, or cancel and close the session — per file or for the whole batch. |
+| **Transfer history** | Settled batches stay in the uploads dialog with their per-file outcomes and copy-report until dismissed; the dock calls out failed files, and a retried upload replaces the failure it fixes. |
 | **Manage files** | Create folders, rename, move, and delete items right from the listing — one at a time or several at once. |
 | **Storage** | See how full the Google account behind the index is, from Google Drive’s own quota. |
 | **Dialogs** | Every dialog — sign-in, uploads, folder creation, renaming, moving, deletion, previews — opens centered over a dimmed page, closes with Escape, and keeps keyboard focus inside itself. |
-| **Theme** | One fixed dark theme in Rin Tohsaka’s palette: near-black surfaces, crimson accents, and soft white text, never switched by the device. |
+| **Theme** | One fixed dark theme in the z.ai monochrome language: a #0d0d0d page, a #161616 header bar over a left icon rail, white pill actions, flat 16px cards, never switched by the device. |
 | **Folder notes** | Display `HEAD.md` above a folder’s files and `README.md` below them. |
 | **Access** | Add an optional browser password and choose whether direct downloads also require it. |
+
+### Sort, filter, and drive the page by keyboard
+
+The listing can be ordered by name, date, or size: click a column head on a desktop (click again to reverse it) or the **Sort** button (any screen) for the full menu. Ordering is applied by Google Drive itself, so every page of a large folder lines up the same way. Above the list, chips narrow the loaded page to folders, images, video, audio, or documents — a client-side filter, so it costs no request.
+
+Keyboard use: **/** focuses search, **↑**/**↓** move through the rows, **Enter** opens the highlighted item, **Space** selects it, **Delete** moves it to the trash, **N** opens the New menu, **Esc** closes whatever is on top, and **?** shows the list. Keys pause while you type or while a dialog is open.
+
+The clock button in the top bar keeps the **recently opened** list — files this browser opened or downloaded, stored only in this browser's local storage — with a time note and one click back to each. Nothing about them is sent anywhere.
+
+Search accepts filters in the field itself: `type:video`, `type:image`, `type:audio`, `type:doc`, `type:pdf`, `type:folder`, and sizes like `size:>100MB` or `size:<500KB`, combined with plain words. Active filters appear as chips under the field; click a chip's x to search again without it.
+
+Image rows show a **thumbnail** where Drive has one. The request goes to the same path as the file itself (`?thumb=1`) and the Worker fetches Drive's render with its own credentials, so no token or session URL ever reaches the page; thumbnails carry the same access rules as a direct download, and load lazily as they scroll into view.
 
 ### Download files from a folder
 
@@ -61,7 +78,7 @@ Uploads run in one centered progress dialog, which folds into a small dock when 
 
 Every file also has its own controls, and the batch footer has **Pause all**, **Resume all**, and **Cancel remaining**:
 
-- **Pause** stops sending chunks immediately and keeps the Google Drive upload session. The row shows **Paused** with the byte Drive confirmed and no time estimate until it resumes. Folding the dialog into its dock keeps the upload running behind the small pill; Escape or a click on the dimmed page folds it just the same.
+- **Pause** stops sending chunks immediately and keeps the Google Drive upload session. The row shows **Paused** with the byte Drive confirmed and no time estimate until it resumes. Folding the dialog into its dock keeps the upload running behind the small pill; Escape or a click on the dimmed page folds it just the same. After a batch settles it stays in the dialog as history — per-file outcomes, the report button, and a per-batch dismiss — with the last three kept; the dock names any failed files until they are retried or dismissed, and **Retry failed** moves the failed files into a fresh batch.
 - **Resume** asks Drive for the byte it confirmed and continues exactly from there. If a chunk was cut off mid-transfer, only the unconfirmed part is sent again — the file is never restarted and no duplicate is created. A connection drop parks the file as **Paused** with the reason, and it resumes by itself when the browser comes back online; pressing Resume works too.
 - **Cancel** stops the transfer and the automatic retries, and asks the Worker to close the unfinished Drive session (Drive answers 499 and discards the partial bytes; an abandoned session would otherwise linger for about a week). Files that already finished uploading are kept. After the batch settles, **Copy report** puts a plain-text summary on the clipboard, including how much time was spent sending bytes versus waiting for Drive to confirm them.
 
@@ -188,5 +205,5 @@ After editing a repository secret, start a fresh run with **Actions → Deploy R
 
 ## Credits
 
-Rin Index’s interface and documentation take their visual cues from [Yutaka](https://github.com/Chowdhury-Siam/Yutaka); the current compact layout follows flat-interface conventions popularized by [z.ai](https://z.ai), rebuilt with Rin’s own crimson-and-burgundy palette, Bricolage Grotesque type ([SIL OFL](public/assets/fonts/OFL.txt)), and a hand-drawn stroke icon set. The Drive Worker builds on [Bhadoo Drive Index](https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index) by Parveen Bhadoo and TheFirstSpeedster, with earlier work from [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex).
+Rin Index’s interface and documentation take their visual cues from [Yutaka](https://github.com/Chowdhury-Siam/Yutaka); the current layout follows the flat, monochrome chat.z.ai design language — a left icon rail, a rounded header bar, pill actions, and grey-on-grey surfaces — rebuilt with a hand-drawn stroke icon set and the site’s own mark (drawn as a light glyph in the rail). The Bricolage Grotesque type files remain bundled ([SIL OFL](public/assets/fonts/OFL.txt)) though the interface now uses the system sans stack. The Drive Worker builds on [Bhadoo Drive Index](https://github.com/ParveenBhadooOfficial/Bhadoo-Drive-Index) by Parveen Bhadoo and TheFirstSpeedster, with earlier work from [GDIndex](https://github.com/maple3142/GDIndex) and [goindex](https://github.com/yanzai/goindex).
 
