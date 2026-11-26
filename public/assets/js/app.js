@@ -59,6 +59,12 @@ const iconSprite = `
 	<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.4 18.4a4.2 4.2 0 0 1-.5-8.4 5.4 5.4 0 0 1 10.5 1.2 3.6 3.6 0 0 1-.6 7.2z"/><path d="M12 14.8v3.6M10.2 16.2 12 14.4l1.8 1.8"/></symbol>
 	<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.6"/><path d="M5.2 19.6a6.8 6.8 0 0 1 13.6 0"/></symbol>
 	<symbol id="i-signout" viewBox="0 0 24 24"><path d="M9.5 5.2H6.6c-.9 0-1.6.7-1.6 1.6v10.4c0 .9.7 1.6 1.6 1.6h2.9"/><path d="m14.5 8.4 3.6 3.6-3.6 3.6"/><path d="M18.1 12H9.9"/></symbol>
+	<symbol id="i-back" viewBox="0 0 24 24"><path d="M14.6 6.4 9 12l5.6 5.6"/></symbol>
+	<symbol id="i-subtitles" viewBox="0 0 24 24"><rect x="3.8" y="5" width="16.4" height="14" rx="1.8"/><path d="M7.4 15.2h3.4M13.4 15.2h3.2"/></symbol>
+	<symbol id="i-volume" viewBox="0 0 24 24"><path d="M4.4 9.5v5h3l4.2 3.5V6L7.4 9.5z"/><path d="M14.6 9.6a3.4 3.4 0 0 1 0 4.8"/><path d="M17 7.4a6.6 6.6 0 0 1 0 9.2"/></symbol>
+	<symbol id="i-mute" viewBox="0 0 24 24"><path d="M4.4 9.5v5h3l4.2 3.5V6L7.4 9.5z"/><path d="m15.4 9.6 4.4 4.8M19.8 9.6l-4.4 4.8"/></symbol>
+	<symbol id="i-pip" viewBox="0 0 24 24"><rect x="3.8" y="4.5" width="16.4" height="15" rx="1.8"/><path d="M12.2 13.2h5.6v4.8h-5.6z"/></symbol>
+	<symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M4.4 9.2V4.4h4.8M15.2 4.4h4.4v4.8M19.6 14.8v4.8h-4.8M8.8 19.6H4.4v-4.8"/></symbol>
 </svg>`;
 
 function icon(name, className) {
@@ -655,7 +661,7 @@ async function openResult(button, file, kind) {
 		const target = await result.text();
 		if (!target.startsWith('/')) throw new Error('This item is outside the indexed folder.');
 		const filePath = '/' + order + ':' + target;
-		location.assign(filePath + (kind.type === 'folder' ? '' : '?a=view'));
+		location.assign(filePath + viewActionFor(kind));
 	} catch (error) {
 		showNotice(error.message);
 		button.disabled = false;
@@ -695,7 +701,7 @@ function row(file) {
 		main.type = 'button';
 		main.addEventListener('click', () => openResult(main, file, kind));
 	} else {
-		main.href = filePath + (folder ? '/' : '?a=view');
+		main.href = filePath + (folder ? '/' : viewActionFor(kind));
 	}
 	const name = create('span', 'row-name', file.name);
 	name.title = file.name;
@@ -1951,7 +1957,9 @@ function renderRecent() {
 	recentList.replaceChildren(...list.map(entry => {
 		const item = create('li', 'recent-row');
 		const link = create('a', 'recent-link');
-		link.href = entry.path + '?a=view';
+		// Media items keep opening on the player page, everything else on the
+		// preview dialog.
+		link.href = entry.path + ((entry.kind === 'video' || entry.kind === 'audio') ? '?a=player' : '?a=view');
 		link.append(kindIcon(entry.kind), create('span', 'recent-name', entry.name));
 		link.title = entry.name;
 		const when = create('span', 'recent-when', timeAgo(entry.at));
@@ -2840,6 +2848,771 @@ folderInput.addEventListener('change', () => {
 	uploadWithFolders(entries, (files[0].webkitRelativePath || '').split('/')[0] || '');
 });
 
+/* ------------------------------------------------------------- player --- */
+
+// Video and audio files open on a page of their own: a full-width stage with
+// the site's controls, a subtitle menu that reads sidecar .srt/.vtt/.ass
+// files from the same folder (browsers cannot read the subtitles embedded
+// inside an .mkv), an audio-track menu that switches tracks whenever the
+// browser exposes them, speed, PiP, fullscreen and keyboard control.
+
+const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const SUBTITLE_EXTS = ['srt', 'vtt', 'ass', 'ssa'];
+const PLAYER_POS_KEY = 'rin-player-position:';
+
+function fileStem(name) {
+	const dot = name.lastIndexOf('.');
+	return dot > 0 ? name.slice(0, dot) : name;
+}
+
+function fileExt(name) {
+	const dot = name.lastIndexOf('.');
+	return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+// A media file opens on its own player page instead of the preview dialog;
+// rows, search results and recent entries all compute the same URL.
+function viewActionFor(kind) {
+	if (kind.type === 'folder') return '';
+	return (kind.type === 'video' || kind.type === 'audio') ? '?a=player' : '?a=view';
+}
+
+function kindFromName(name) {
+	return fileKind({ name });
+}
+
+function formatClock(seconds) {
+	if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+	const total = Math.floor(seconds);
+	const hours = Math.floor(total / 3600);
+	const minutes = Math.floor((total % 3600) / 60);
+	const two = value => String(value).padStart(2, '0');
+	return (hours ? hours + ':' + two(minutes) : String(minutes)) + ':' + two(total % 60);
+}
+
+// Cue clocks: SRT writes "0:00:01,500", VTT "0:00:01.500", ASS "0:00:01.50" —
+// one lenient reader covers all three.
+function parseCueClock(value) {
+	const match = /^(\d+):(\d{1,2}):(\d{1,2})[.,](\d{1,3})/.exec(String(value).trim());
+	if (!match) return null;
+	return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+		+ Number(match[4].padEnd(3, '0')) / 1000;
+}
+
+function cleanCueText(lines) {
+	// The overlay renders plain text: markup tags and ASS override blocks go,
+	// hard line breaks stay.
+	const text = lines.join('\n')
+		.replace(/<[^>]*>/g, '')
+		.replace(/\{[^}]*\}/g, '')
+		.replace(/\\[Nn]/g, '\n')
+		.trim();
+	return text || null;
+}
+
+function parseSrtOrVtt(text) {
+	const cues = [];
+	for (const block of text.replace(/\r/g, '').split(/\n{2,}/)) {
+		const lines = block.split('\n').filter(Boolean);
+		const cueLine = lines.findIndex(line => line.includes('-->'));
+		if (cueLine === -1) continue;
+		const [rawStart, rawEnd] = lines[cueLine].split('-->');
+		const start = parseCueClock(rawStart);
+		const end = parseCueClock(rawEnd);
+		const body = cleanCueText(lines.slice(cueLine + 1));
+		if (start !== null && end !== null && body) cues.push({ start, end, text: body });
+	}
+	return cues;
+}
+
+function parseAss(text) {
+	const cues = [];
+	// Default [Events] layout; the file's own Format line replaces it.
+	const columns = ['layer', 'start', 'end', 'style', 'name', 'marginl', 'marginr', 'marginv', 'effect', 'text'];
+	let inEvents = false;
+	for (const rawLine of text.replace(/\r/g, '').split('\n')) {
+		const section = /^\[(.+)\]$/.exec(rawLine.trim());
+		if (section) {
+			inEvents = section[1].trim().toLowerCase() === 'events';
+			continue;
+		}
+		if (!inEvents) continue;
+		if (/^format\s*:/i.test(rawLine)) {
+			const fields = rawLine.replace(/^format\s*:/i, '').split(',').map(field => field.trim().toLowerCase());
+			if (fields.length >= 3) columns.splice(0, columns.length, ...fields);
+			continue;
+		}
+		if (!/^dialogue\s*:/i.test(rawLine)) continue;
+		const fields = rawLine.replace(/^dialogue\s*:/i, '').split(',');
+		const textIndex = columns.indexOf('text');
+		const startIndex = columns.indexOf('start');
+		const endIndex = columns.indexOf('end');
+		if (textIndex < 1 || startIndex === -1 || endIndex === -1) continue;
+		const head = fields.slice(0, textIndex);
+		// The text column keeps its commas: only the leading columns split.
+		const start = parseCueClock(head[startIndex]);
+		const end = parseCueClock(head[endIndex]);
+		const body = cleanCueText([fields.slice(textIndex).join(',')]);
+		if (start !== null && end !== null && body) cues.push({ start, end, text: body });
+	}
+	return cues;
+}
+
+function subtitleLabel(fileName, stem) {
+	// "Episode.en.srt" → "en", "Episode.English.ass" → "english";
+	// a plain "Episode.srt" is just the file's own format.
+	const ext = fileExt(fileName);
+	const middle = fileName.slice(stem.length, fileName.length - ext.length - 1).replace(/^[.\s_-]+/, '');
+	return middle || 'Subtitles';
+}
+
+async function playerPage() {
+	const fileName = nameFromPath(path);
+	const kind = kindFromName(fileName);
+	const isVideo = kind.type === 'video';
+
+	// The listing panel, its controls and the search field are not part of a
+	// player page; the crumbs and the back button are the way out, and the
+	// stage gets the room the search band would have taken.
+	panel.hidden = true;
+	searchForm.hidden = true;
+	searchHint.hidden = true;
+	railSearch.hidden = true;
+	const pageTitle = document.querySelector('#heading');
+	pageTitle.textContent = fileName;
+	pageTitle.title = fileName;
+	document.title = fileName + ' · ' + name;
+
+	let file = null;
+	try {
+		const response = await post(path);
+		file = await response.json();
+	} catch {}
+	if (!file) file = { name: fileName };
+	// Opening the player is the same "recent" event as opening a preview.
+	recordRecent(file, path);
+
+	const player = create('section', 'player' + (isVideo ? '' : ' is-audio'));
+	player.setAttribute('aria-label', 'Media player');
+
+	const head = create('header', 'player-head');
+	const back = create('button', 'icon-btn player-back');
+	back.type = 'button';
+	back.title = 'Back to the folder';
+	back.setAttribute('aria-label', 'Back to the folder');
+	back.append(icon('back'));
+	const titleBox = create('div', 'player-title');
+	const title = create('h2', 'player-name', file.name || fileName);
+	title.title = file.name || fileName;
+	const meta = create('p', 'player-meta', [
+		kind.label,
+		file.size !== undefined ? formatSize(file.size) : null,
+		file.modifiedTime ? modified(file) : null
+	].filter(Boolean).join(' · '));
+	titleBox.append(title, meta);
+	const headActions = create('div', 'player-head-actions');
+	const copy = create('button', 'icon-btn');
+	copy.type = 'button';
+	copy.title = 'Copy direct URL';
+	copy.setAttribute('aria-label', 'Copy direct URL');
+	copy.append(icon('link'));
+	const download = create('a', 'icon-btn');
+	download.title = 'Download';
+	download.setAttribute('aria-label', 'Download');
+	download.href = path;
+	download.download = file.name || fileName;
+	download.append(icon('download'));
+	headActions.append(copy, download);
+	head.append(back, titleBox, headActions);
+
+	const stage = create('div', 'player-stage');
+	const media = create(isVideo ? 'video' : 'audio', 'player-media');
+	if (isVideo) media.playsInline = true;
+	media.preload = 'metadata';
+	const subsBox = create('div', 'player-subs');
+	subsBox.setAttribute('aria-live', 'polite');
+	const status = create('p', 'player-status');
+	status.setAttribute('role', 'status');
+	const bigPlay = create('button', 'player-big');
+	bigPlay.type = 'button';
+	bigPlay.title = 'Play';
+	bigPlay.setAttribute('aria-label', 'Play');
+	bigPlay.append(icon('play'));
+	const failed = create('div', 'player-failed');
+	failed.hidden = true;
+
+	const controls = create('div', 'player-controls');
+	const bar = create('div', 'player-bar');
+	const toggle = create('button', 'player-btn player-toggle');
+	toggle.type = 'button';
+	toggle.title = 'Play';
+	toggle.setAttribute('aria-label', 'Play');
+	toggle.append(icon('play'));
+	const playPause = () => {
+		if (media.paused) media.play().catch(() => {});
+		else media.pause();
+	};
+	toggle.addEventListener('click', playPause);
+
+	const currentTime = create('span', 'player-time', '0:00');
+	const seek = create('div', 'player-seek');
+	seek.setAttribute('role', 'slider');
+	seek.setAttribute('aria-label', 'Seek');
+	seek.tabIndex = 0;
+	const track = create('div', 'seek-track');
+	const buffered = create('div', 'seek-buffered');
+	const played = create('div', 'seek-played');
+	const thumb = create('div', 'seek-thumb');
+	track.append(buffered, played, thumb);
+	seek.append(track);
+	const duration = create('span', 'player-time player-duration', '0:00');
+
+	const volume = create('div', 'player-volume');
+	const mute = create('button', 'player-btn player-mute');
+	mute.type = 'button';
+	mute.title = 'Mute';
+	mute.setAttribute('aria-label', 'Mute');
+	mute.append(icon('volume'));
+	const volumeRange = create('input', 'player-volume-range');
+	volumeRange.type = 'range';
+	volumeRange.min = '0';
+	volumeRange.max = '1';
+	volumeRange.step = '0.05';
+	volumeRange.value = '1';
+	volumeRange.setAttribute('aria-label', 'Volume');
+	volume.append(mute, volumeRange);
+
+	const speed = create('button', 'player-btn player-speed');
+	speed.type = 'button';
+	speed.title = 'Playback speed';
+	speed.setAttribute('aria-label', 'Playback speed');
+	speed.textContent = '1×';
+
+	const cc = create('button', 'player-btn player-cc');
+	cc.type = 'button';
+	cc.title = 'Subtitles';
+	cc.setAttribute('aria-label', 'Subtitles');
+	cc.append(icon('subtitles'));
+
+	const audioButton = create('button', 'player-btn player-audio-btn');
+	audioButton.type = 'button';
+	audioButton.title = 'Audio track';
+	audioButton.setAttribute('aria-label', 'Audio track');
+	audioButton.append(icon('volume'));
+
+	const pip = create('button', 'player-btn player-pip');
+	pip.type = 'button';
+	pip.title = 'Picture in picture';
+	pip.setAttribute('aria-label', 'Picture in picture');
+	pip.append(icon('pip'));
+
+	const full = create('button', 'player-btn player-full');
+	full.type = 'button';
+	full.title = 'Fullscreen';
+	full.setAttribute('aria-label', 'Fullscreen');
+	full.append(icon('fullscreen'));
+
+	bar.append(toggle, currentTime, seek, duration, volume, speed, cc, audioButton, pip, full);
+	controls.append(bar);
+	stage.append(media, subsBox, status, bigPlay, failed, controls);
+	if (!isVideo) {
+		const card = create('div', 'player-audio-card');
+		const glyph = icon('audio');
+		card.append(glyph, create('p', 'player-audio-name', file.name || fileName));
+		stage.append(card);
+		cc.hidden = true;
+	}
+
+	const note = create('p', 'player-note');
+	note.setAttribute('role', 'status');
+	let noteTimer = null;
+	function setNote(message) {
+		note.textContent = message || '';
+		note.hidden = !message;
+		if (noteTimer) clearTimeout(noteTimer);
+		if (message) noteTimer = setTimeout(() => {
+			note.hidden = true;
+			note.textContent = '';
+		}, 3500);
+	}
+	player.append(head, stage, note);
+
+	const firstSection = document.querySelector('#main .pagehead');
+	firstSection.after(player);
+
+	function leavePlayer() {
+		savePosition();
+		const fallback = setTimeout(() => location.assign(parentPath() || root), 400);
+		window.addEventListener('pagehide', () => clearTimeout(fallback), { once: true });
+		history.back();
+	}
+	back.addEventListener('click', leavePlayer);
+	pushLayer(leavePlayer);
+	copy.onclick = () => copyDirectUrl(path, file.name || fileName);
+
+	/* --- state --- */
+
+	const subtitleTracks = [];
+	let activeSubtitle = null;
+	let subtitleOffset = 0;
+
+	/* --- subtitle tracks --- */
+
+	function collectNativeSubtitles() {
+		// Some browsers surface container-embedded text tracks; they are
+		// rendered by the media element itself instead of the overlay.
+		const list = media.textTracks;
+		if (!list) return 0;
+		let added = 0;
+		for (let i = 0; i < list.length; i++) {
+			const native = list[i];
+			if (native.kind !== 'subtitles' && native.kind !== 'captions') continue;
+			const id = 'native:' + i;
+			if (subtitleTracks.some(item => item.id === id)) continue;
+			const label = native.label || native.language || 'Track ' + (i + 1);
+			subtitleTracks.push({ id, label, source: 'native', native });
+			added++;
+		}
+		return added;
+	}
+
+	async function discoverSubtitles() {
+		try {
+			const response = await post(parentPath());
+			const listing = await response.json();
+			const stem = fileStem(file.name || fileName);
+			const found = (listing?.data?.files || []).filter(entry => {
+				const ext = fileExt(entry.name || '');
+				return SUBTITLE_EXTS.includes(ext)
+					&& (entry.name === stem + '.' + ext || (entry.name || '').startsWith(stem + '.'));
+			});
+			for (const entry of found) {
+				subtitleTracks.push({
+					id: 'sidecar:' + entry.name,
+					label: subtitleLabel(entry.name, stem),
+					source: 'sidecar',
+					path: parentPath() + encodeURIComponent(entry.name),
+					format: fileExt(entry.name)
+				});
+			}
+			// A lone sidecar carrying the video's own name is what local
+			// players load automatically; tagged tracks wait for a choice.
+			const sidecars = subtitleTracks.filter(item => item.source === 'sidecar');
+			if (sidecars.length === 1 && sidecars[0].id === 'sidecar:' + stem + '.' + sidecars[0].format) {
+				selectSubtitle(sidecars[0].id);
+			}
+		} catch {
+			// No folder listing, no sidecar subtitles; the menu still works.
+		}
+	}
+
+	async function loadSidecarCues(track) {
+		if (track.cues || track.cues === null) return track.cues;
+		const response = await fetch(track.path);
+		if (!response.ok) throw new Error('Could not load ' + track.label + '.');
+		const text = await response.text();
+		track.cues = track.format === 'ass' || track.format === 'ssa'
+			? parseAss(text)
+			: parseSrtOrVtt(text);
+		return track.cues;
+	}
+
+	async function selectSubtitle(id) {
+		activeSubtitle = id || null;
+		cc.classList.toggle('is-on', Boolean(activeSubtitle));
+		const track = subtitleTracks.find(item => item.id === activeSubtitle);
+		// Native tracks switch modes; only one shows at a time.
+		for (const item of subtitleTracks) {
+			if (item.native) item.native.mode = (item.id === activeSubtitle) ? 'showing' : 'disabled';
+		}
+		if (!track || track.source !== 'sidecar') {
+			subsBox.replaceChildren();
+			return;
+		}
+		try {
+			const cues = await loadSidecarCues(track);
+			if (activeSubtitle !== track.id) return;
+			if (!cues.length) setNote(track.label + ' has no readable cues.');
+			renderSubtitles();
+		} catch (error) {
+			activeSubtitle = null;
+			cc.classList.remove('is-on');
+			setNote(error.message || 'The subtitle file could not be read.');
+		}
+	}
+
+	function renderSubtitles() {
+		const track = subtitleTracks.find(item => item.id === activeSubtitle);
+		if (!track || track.source !== 'sidecar' || !track.cues) {
+			if (!track || track.source !== 'sidecar') subsBox.replaceChildren();
+			return;
+		}
+		const time = media.currentTime - subtitleOffset;
+		const cue = track.cues.find(item => time >= item.start && time <= item.end);
+		if (!cue) {
+			subsBox.replaceChildren();
+			return;
+		}
+		if (subsBox.dataset.cue === cue.text) return;
+		subsBox.dataset.cue = cue.text;
+		subsBox.replaceChildren(...cue.text.split('\n').map(line => create('span', '', line)));
+	}
+
+	function cycleSubtitle() {
+		const order = [null, ...subtitleTracks.map(item => item.id)];
+		const index = order.indexOf(activeSubtitle);
+		const next = order[(index + 1) % order.length];
+		selectSubtitle(next);
+		setNote(next
+			? 'Subtitles: ' + subtitleTracks.find(item => item.id === next).label
+			: 'Subtitles off.');
+	}
+
+	/* --- audio tracks --- */
+
+	function audioMenuItems() {
+		const items = [{ heading: 'Audio track' }];
+		const list = media.audioTracks;
+		if (list && list.length) {
+			for (let i = 0; i < list.length; i++) {
+				const track = list[i];
+				items.push({
+					label: track.label || track.language || 'Track ' + (i + 1),
+					icon: track.enabled ? 'check' : null,
+					onPick: () => {
+						// AudioTrackList allows several enabled tracks; one at a
+						// time is what a listener can follow.
+						for (let j = 0; j < list.length; j++) list[j].enabled = (j === i);
+						setNote('Audio: ' + (track.label || track.language || 'Track ' + (i + 1)));
+					}
+				});
+			}
+			return items;
+		}
+		items.push(
+			{ label: 'Default track', icon: 'check', disabled: true },
+			{ label: 'This file exposes one audio track in this browser', disabled: true }
+		);
+		return items;
+	}
+
+	/* --- menus --- */
+
+	function speedMenuItems() {
+		return [{ heading: 'Playback speed' },
+			...PLAYER_SPEEDS.map(value => ({
+				label: value === 1 ? 'Normal' : value + '×',
+				icon: media.playbackRate === value ? 'check' : null,
+				onPick: () => {
+					media.playbackRate = value;
+					speed.textContent = value === 1 ? '1×' : value + '×';
+				}
+			}))];
+	}
+
+	function subtitleMenuItems() {
+		const items = [{ label: 'Off', icon: activeSubtitle ? null : 'check', onPick: () => selectSubtitle(null) }];
+		for (const track of subtitleTracks) {
+			items.push({
+				label: track.label + (track.source === 'sidecar' ? ' · ' + track.format.toUpperCase() : ''),
+				icon: activeSubtitle === track.id ? 'check' : null,
+				onPick: () => selectSubtitle(track.id)
+			});
+		}
+		if (!subtitleTracks.length) {
+			items.push({ label: 'No subtitle files found next to this video', disabled: true });
+		}
+		items.push(
+			{ sep: true, heading: 'Sync' },
+			{
+				label: 'Show earlier by 0.5s',
+				onPick: () => {
+					subtitleOffset -= 0.5;
+					setNote('Subtitle sync: ' + (subtitleOffset > 0 ? '+' : '') + subtitleOffset + 's');
+					renderSubtitles();
+				}
+			},
+			{
+				label: 'Show later by 0.5s',
+				onPick: () => {
+					subtitleOffset += 0.5;
+					setNote('Subtitle sync: ' + (subtitleOffset > 0 ? '+' : '') + subtitleOffset + 's');
+					renderSubtitles();
+				}
+			},
+			{ label: 'Offset: ' + (subtitleOffset > 0 ? '+' : '') + subtitleOffset + 's', disabled: true }
+		);
+		return items;
+	}
+
+	cc.addEventListener('click', () => showMenu(cc, subtitleMenuItems()));
+	audioButton.addEventListener('click', () => showMenu(audioButton, audioMenuItems()));
+	speed.addEventListener('click', () => showMenu(speed, speedMenuItems()));
+
+	/* --- transport --- */
+
+	function mediaError() {
+		const code = media.error ? media.error.code : 0;
+		const cause = code === 4 ? 'its codec' : 'a network or decode error';
+		failed.replaceChildren(
+			create('p', '', 'This browser cannot play this file — ' + cause + ' is not supported here.'),
+			create('p', '', 'Download it and open it in a local player, or try a Chromium-based browser.')
+		);
+		failed.hidden = false;
+		controls.hidden = true;
+		bigPlay.hidden = true;
+		savePosition();
+	}
+
+	function renderTime() {
+		currentTime.textContent = formatClock(media.currentTime);
+		if (Number.isFinite(media.duration)) duration.textContent = formatClock(media.duration);
+		if (Number.isFinite(media.duration) && !seeking) {
+			const progress = media.currentTime / media.duration;
+			played.style.width = (progress * 100) + '%';
+			thumb.style.left = (progress * 100) + '%';
+			seek.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+		}
+	}
+
+	function renderBuffered() {
+		if (!Number.isFinite(media.duration) || !media.buffered.length) return;
+		const end = media.buffered.end(media.buffered.length - 1);
+		buffered.style.width = Math.min(100, end / media.duration * 100) + '%';
+	}
+
+	let seeking = false;
+	function seekToRatio(clientX) {
+		const rect = seek.getBoundingClientRect();
+		const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+		if (Number.isFinite(media.duration)) media.currentTime = ratio * media.duration;
+	}
+	seek.addEventListener('pointerdown', event => {
+		if (!Number.isFinite(media.duration)) return;
+		seeking = true;
+		seek.setPointerCapture(event.pointerId);
+		seekToRatio(event.clientX);
+	});
+	seek.addEventListener('pointermove', event => {
+		if (seeking) seekToRatio(event.clientX);
+	});
+	const stopSeek = () => { seeking = false; };
+	seek.addEventListener('pointerup', stopSeek);
+	seek.addEventListener('pointercancel', stopSeek);
+
+	function setVolumeIcon() {
+		mute.replaceChildren(icon(media.muted || media.volume === 0 ? 'mute' : 'volume'));
+		mute.title = media.muted ? 'Unmute' : 'Mute';
+	}
+	mute.addEventListener('click', () => {
+		media.muted = !media.muted;
+		if (!media.muted && media.volume === 0) media.volume = 0.5;
+		volumeRange.value = media.muted ? 0 : media.volume;
+		setVolumeIcon();
+	});
+	volumeRange.addEventListener('input', () => {
+		media.volume = Number(volumeRange.value);
+		media.muted = media.volume === 0;
+		setVolumeIcon();
+	});
+	setVolumeIcon();
+
+	/* --- position memory --- */
+
+	function savedPosition() {
+		try {
+			const value = Number(localStorage.getItem(PLAYER_POS_KEY + path));
+			return Number.isFinite(value) && value > 15 ? value : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	function savePosition() {
+		try {
+			if (!Number.isFinite(media.duration)
+				|| media.currentTime < 15
+				|| media.currentTime > media.duration - 10
+				|| media.ended) {
+				localStorage.removeItem(PLAYER_POS_KEY + path);
+			} else {
+				localStorage.setItem(PLAYER_POS_KEY + path, String(Math.floor(media.currentTime)));
+			}
+		} catch {}
+	}
+
+	let resume = null;
+	function offerResume(at) {
+		hideResume();
+		resume = create('div', 'player-resume');
+		resume.append(create('span', '', 'Resume at ' + formatClock(at) + '?'));
+		const resumeButton = create('button', 'button button-primary', 'Resume');
+		resumeButton.type = 'button';
+		resumeButton.addEventListener('click', () => {
+			media.currentTime = at;
+			hideResume();
+			media.play().catch(() => {});
+		});
+		const startOver = create('button', 'button button-secondary', 'Start over');
+		startOver.type = 'button';
+		startOver.addEventListener('click', () => {
+			media.currentTime = 0;
+			hideResume();
+		});
+		resume.append(resumeButton, startOver);
+		controls.before(resume);
+		setTimeout(hideResume, 8000);
+	}
+	function hideResume() {
+		if (resume) {
+			resume.remove();
+			resume = null;
+		}
+	}
+
+	/* --- events --- */
+
+	media.addEventListener('error', mediaError);
+	media.addEventListener('loadedmetadata', () => {
+		renderTime();
+		renderBuffered();
+		const at = savedPosition();
+		if (at && at < media.duration - 10) offerResume(at);
+	});
+	media.addEventListener('timeupdate', renderTime);
+	// A seek (or a pause) redraws captions too: the frame loop only runs
+	// while playing, and a paused frame must still show its cue.
+	media.addEventListener('seeked', renderSubtitles);
+	media.addEventListener('timeupdate', renderSubtitles);
+	media.addEventListener('progress', renderBuffered);
+	media.addEventListener('waiting', () => { status.textContent = 'Buffering…'; });
+	media.addEventListener('playing', () => { status.textContent = ''; });
+	media.addEventListener('ended', () => {
+		bigPlay.hidden = !isVideo;
+		toggle.replaceChildren(icon('play'));
+		toggle.title = 'Play';
+	});
+	media.addEventListener('play', () => {
+		bigPlay.hidden = true;
+		toggle.replaceChildren(icon('pause'));
+		toggle.title = 'Pause';
+		scheduleIdle();
+	});
+	media.addEventListener('pause', () => {
+		bigPlay.hidden = !isVideo;
+		toggle.replaceChildren(icon('play'));
+		toggle.title = 'Play';
+		wakeControls();
+	});
+	media.addEventListener('volumechange', () => {
+		volumeRange.value = media.muted ? 0 : media.volume;
+		setVolumeIcon();
+	});
+
+	media.src = path + '?inline=true';
+
+	bigPlay.addEventListener('click', () => media.play().catch(() => {}));
+	if (isVideo) media.addEventListener('click', playPause);
+
+	// The overlay redraws on the frame clock while playing; timeupdate alone
+	// fires too rarely to switch cues on time.
+	let running = false;
+	function frame() {
+		renderSubtitles();
+		if (!media.paused && !media.ended) requestAnimationFrame(frame);
+		else running = false;
+	}
+	media.addEventListener('play', () => {
+		if (!running) {
+			running = true;
+			requestAnimationFrame(frame);
+		}
+	});
+
+	/* --- idle auto-hide (video) --- */
+
+	let idleTimer = null;
+	function wakeControls() {
+		if (idleTimer) clearTimeout(idleTimer);
+		player.classList.remove('is-idle');
+		if (isVideo && !media.paused) scheduleIdle();
+	}
+	function scheduleIdle() {
+		if (!isVideo) return;
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			if (!media.paused && !document.querySelector('.popover')) player.classList.add('is-idle');
+		}, 2600);
+	}
+	const wake = () => wakeControls();
+	stage.addEventListener('pointermove', wake);
+	stage.addEventListener('pointerdown', wake);
+	document.addEventListener('fullscreenchange', wakeControls);
+
+	/* --- PiP and fullscreen --- */
+
+	if (!isVideo || !document.pictureInPictureEnabled) pip.hidden = true;
+	pip.addEventListener('click', () => {
+		if (document.pictureInPictureElement) document.exitPictureInPicture();
+		else media.requestPictureInPicture().catch(() => {
+			setNote('Picture in picture is unavailable for this file.');
+		});
+	});
+	if (!isVideo || !document.documentElement.requestFullscreen) full.hidden = true;
+	full.addEventListener('click', () => {
+		if (document.fullscreenElement) document.exitFullscreen();
+		else stage.requestFullscreen().catch(() => {
+			setNote('Fullscreen is unavailable here.');
+		});
+	});
+	document.addEventListener('fullscreenchange', () => {
+		full.replaceChildren(icon(document.fullscreenElement ? 'collapse' : 'fullscreen'));
+		full.title = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+	});
+
+	/* --- keyboard --- */
+
+	function isTyping(target) {
+		return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+			|| target instanceof HTMLSelectElement;
+	}
+	window.addEventListener('keydown', event => {
+		if (event.defaultPrevented || isTyping(event.target) || document.querySelector('.popover')) return;
+		const key = event.key.toLowerCase();
+		let handled = true;
+		switch (true) {
+			case event.key === ' ' || key === 'k': playPause(); break;
+			case event.key === 'ArrowLeft' || key === 'j': media.currentTime = Math.max(0, media.currentTime - 10); break;
+			case event.key === 'ArrowRight' || key === 'l': media.currentTime = Math.min(media.duration || 0, media.currentTime + 10); break;
+			case event.key === 'ArrowUp': media.volume = Math.min(1, media.volume + 0.1); media.muted = false; break;
+			case event.key === 'ArrowDown': media.volume = Math.max(0, media.volume - 0.1); break;
+			case key === 'm': media.muted = !media.muted; break;
+			case key === 'f': if (!full.hidden) full.click(); break;
+			case key === 'p': if (!pip.hidden) pip.click(); break;
+			case key === 'c': cycleSubtitle(); break;
+			case /^[0-9]$/.test(key): {
+				if (!Number.isFinite(media.duration)) break;
+				media.currentTime = media.duration * Number(key) / 10;
+				break;
+			}
+			case event.key === 'Home': media.currentTime = 0; break;
+			case event.key === 'End': if (Number.isFinite(media.duration)) media.currentTime = media.duration; break;
+			default: handled = false;
+		}
+		if (handled) {
+			event.preventDefault();
+			wakeControls();
+		}
+	});
+	window.addEventListener('pagehide', savePosition);
+
+	/* --- boot --- */
+
+	collectNativeSubtitles();
+	if (media.textTracks) media.textTracks.addEventListener('addtrack', collectNativeSubtitles);
+	discoverSubtitles();
+}
+
 if (isSearch || isFolder) {
 	panel.querySelector('.panel-title').textContent = isSearch ? 'Matching files' : 'Files and folders';
 	// The rail marks the section the page belongs to.
@@ -2868,7 +3641,15 @@ if (isSearch || isFolder) {
 	});
 	loadPage();
 } else {
-	previewFile();
+	// Video and audio have a page of their own; anything else keeps the
+	// preview dialog. Old ?a=view links to media forward to the player.
+	const kind = kindFromName(nameFromPath(path));
+	if (kind.type === 'video' || kind.type === 'audio') {
+		if (new URLSearchParams(location.search).get('a') === 'player') playerPage();
+		else location.replace(path + '?a=player');
+	} else {
+		previewFile();
+	}
 }
 
 
