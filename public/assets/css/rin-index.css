@@ -6,7 +6,7 @@
  * for every accent, dark burgundy for selected and tinted surfaces, soft
  * white and muted grey text. Bricolage Grotesque carries headings and
  * numerals, and an inline stroke icon set was drawn for this project. Dark
- * is the theme; light carries the same layout through CSS custom properties.
+ * is the only theme; the palette is fixed and never follows the device.
  */
 
 /* ------------------------------------------------------------ tokens --- */
@@ -71,43 +71,6 @@
 	--speed: 0.15s;
 
 	color-scheme: dark;
-}
-
-[data-theme='light'] {
-	--page: #f7f3f3;
-	--surface: #ffffff;
-	--subtle: #f1e8ea;
-	--well: #faf5f6;
-	--tint: #f8eef1;
-	--selected: #f8e6eb;
-
-	--border: rgba(58, 18, 30, 0.11);
-	--border-strong: rgba(58, 18, 30, 0.22);
-	--control-border: #a5959c;
-	--hover: rgba(120, 20, 44, 0.05);
-	--glow: rgba(165, 13, 42, 0.05);
-
-	--text: #231418;
-	--text-2: #5c4a50;
-	--text-3: #726068;
-
-	--accent: #a50d2a;
-	--accent-hover: #8c0b24;
-	--accent-contrast: #ffffff;
-	--accent-subtle: #fbe6ea;
-	--accent-text: #a50d2a;
-	--burgundy: #5c1430;
-
-	--danger: #a80e2c;
-	--danger-subtle: #fbe6ea;
-	--danger-fill: #a80e2c;
-
-	--ring: rgba(165, 13, 42, 0.35);
-	--shadow-1: 0 1px 2px rgba(60, 16, 30, 0.06);
-	--shadow-2: 0 12px 40px rgba(60, 16, 30, 0.16), 0 2px 8px rgba(60, 16, 30, 0.06);
-	--scrim: rgba(40, 10, 18, 0.4);
-
-	color-scheme: light;
 }
 
 @font-face {
@@ -275,17 +238,6 @@ svg.icon {
 .source-link svg.icon {
 	width: 13px;
 	height: 13px;
-}
-
-/* The admin entry point: a quiet lock for visitors who may sign in, the
- * same button in crimson once they have. It says nothing about what waits
- * behind it. */
-.account-button.is-admin {
-	color: var(--accent-text);
-}
-
-.account-button.is-admin:hover {
-	background: var(--accent-subtle);
 }
 
 /* ------------------------------------------------------------ page head --- */
@@ -1541,23 +1493,13 @@ svg.icon {
 
 /* ------------------------------------------------------------ uploads --- */
 
-/* Uploads live in one floating panel, out of the way of the file list, and
- * fold into a dock when the admin wants the page back. */
+/* Uploads live in the centered dialog every other popup uses, over the same
+ * dimmed page; they fold into the dock when the admin wants the page back,
+ * and keep running either way. The .modal base carries the surface, radius,
+ * and opening animation. */
 .upload-panel {
-	position: fixed;
-	right: var(--s4);
-	bottom: var(--s4);
-	z-index: 55;
-	display: flex;
-	flex-direction: column;
-	width: min(360px, calc(100vw - 32px));
-	max-height: min(62vh, 480px);
-	background: var(--surface);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--r-xl);
-	box-shadow: var(--shadow-2);
-	overflow: hidden;
-	animation: panel-in 0.2s var(--ease);
+	max-width: 480px;
+	max-height: calc(100vh - 48px);
 }
 
 .upload-head {
@@ -1922,6 +1864,13 @@ svg.icon {
 		padding: var(--s3);
 	}
 
+	/* The tools row is measured to be wider than a phone; let it fold onto
+	 * its own lines instead of pushing the page sideways. */
+	.panel-tools {
+		flex-wrap: wrap;
+		margin-left: 0;
+	}
+
 	.selection-bar {
 		padding: var(--s3);
 	}
@@ -1935,6 +1884,20 @@ svg.icon {
 	}
 
 	.list-head {
+		display: none;
+	}
+
+	/* Phones drop the column labels, but an admin keeps the select-all row:
+	 * it is the only way to select everything at once. */
+	.list-head.is-managed {
+		display: grid;
+		grid-template-columns: 28px minmax(0, 1fr);
+		align-items: center;
+		gap: var(--s3);
+		padding: var(--s2) var(--s3) var(--s1);
+	}
+
+	.list-head.is-managed > span:not(.row-select) {
 		display: none;
 	}
 
@@ -2005,19 +1968,6 @@ svg.icon {
 
 	.move-list {
 		max-height: 44vh;
-	}
-
-	.upload-panel {
-		left: 0;
-		right: 0;
-		bottom: 0;
-		width: auto;
-		max-height: 62vh;
-		border-radius: var(--r-xl) var(--r-xl) 0 0;
-		border-bottom: 0;
-		padding-bottom: env(safe-area-inset-bottom);
-		animation-name: sheet-in;
-		animation-duration: 0.22s;
 	}
 
 	.upload-dock {
