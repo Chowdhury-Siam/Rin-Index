@@ -198,9 +198,8 @@ svg.icon {
 	width: 26px;
 	height: 26px;
 	border-radius: var(--r-sm);
-	/* The mark is drawn in colour; the shell is monochrome, so it is read
-	 * as a light glyph like every other icon. */
-	filter: grayscale(1) brightness(1.85) contrast(0.85);
+	/* The mark itself is monochrome — dark tile, white glyph — matching
+	 * the shell, and the favicon shows it raw in the browser tab. */
 }
 
 .rail-brand:hover {
@@ -295,7 +294,6 @@ svg.icon {
 	width: 22px;
 	height: 22px;
 	border-radius: var(--r-sm);
-	filter: grayscale(1) brightness(1.85) contrast(0.85);
 }
 
 .topbar-actions {
