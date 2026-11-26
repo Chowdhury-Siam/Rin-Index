@@ -68,7 +68,10 @@ async function openSession(token, secret) {
 	}
 }
 
-async function safeEqual(a, b) {
+// Constant-time string comparison: both sides are hashed first, so the
+// comparison time does not leak how much of the secret matched. Shared by
+// the admin pair check and the viewer gate.
+export async function safeEqual(a, b) {
 	const [da, db] = await Promise.all([
 		crypto.subtle.digest('SHA-256', encoder.encode(String(a))),
 		crypto.subtle.digest('SHA-256', encoder.encode(String(b)))
