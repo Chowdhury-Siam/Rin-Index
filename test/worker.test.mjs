@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { folderMimeType, readSettings } from '../worker/settings.mjs';
 
+// Captured before any Worker module loads: loading the Worker must never
+// replace shared prototypes of the isolate.
+const nativeTrim = String.prototype.trim;
+
 const env = {
 	GOOGLE_CLIENT_ID: 'test-client',
 	GOOGLE_CLIENT_SECRET: 'test-secret',
@@ -755,4 +759,56 @@ test('the admin pair browses a private index and core flows keep working with up
 	const links = await request('/0:/?download=links', { method: 'HEAD', headers: { Authorization: adminAuth } });
 	assert.equal(links.status, 200);
 	assert.match(links.headers.get('Content-Disposition'), /^attachment; filename="My Drive\.txt"/);
+});
+
+test('the served page is dark-only: one theme color, no switcher, no system preference', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?dark-only');
+	t.mock.method(globalThis, 'fetch', async url => {
+		url = new URL(url);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		assert.fail(`Unexpected request ${url}`);
+	});
+
+	const page = await worker.fetch(new Request('https://index.test/0:/', { headers: { Authorization: auth } }), env);
+	assert.equal(page.status, 200);
+	const html = await page.text();
+	const themeColors = [...html.matchAll(/<meta name="theme-color"[^>]*>/g)];
+	assert.equal(themeColors.length, 1, 'exactly one theme color, without a light variant');
+	assert.match(themeColors[0][0], /#0c090b/);
+	assert.doesNotMatch(html, /prefers-color-scheme/, 'the page never follows the device theme');
+	assert.doesNotMatch(html, /rin-theme/, 'no stored theme preference is read');
+	assert.doesNotMatch(html, /data-theme/, 'no theme attribute is set');
+	assert.doesNotMatch(html, /theme-toggle/, 'no theme switcher control is served');
+});
+
+test('loading the Worker leaves shared prototypes of the isolate alone', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?prototypes');
+	t.mock.method(globalThis, 'fetch', async url => {
+		url = new URL(url);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		assert.fail(`Unexpected request ${url}`);
+	});
+
+	assert.equal(String.prototype.trim, nativeTrim, 'String.prototype.trim stays the native one');
+	assert.equal('/a/b/'.trim(), '/a/b/', 'native trim semantics are unchanged');
+	const page = await worker.fetch(new Request('https://index.test/0:/', { headers: { Authorization: auth } }), env);
+	assert.equal(page.status, 200, 'paths still resolve without a trim(char) override');
+});
+
+test('the viewer gate answers the viewer pair and only it, passwords with colons included', async t => {
+	const { default: worker } = await import('../worker/worker-beta.js?viewer-gate');
+	t.mock.method(globalThis, 'fetch', async url => {
+		url = new URL(url);
+		if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'test-access' });
+		if (url.pathname.endsWith('/root')) return Response.json({ id: 'real-root', mimeType: folderMimeType });
+		assert.fail(`Unexpected request ${url}`);
+	});
+
+	const request = headers => worker.fetch(new Request('https://index.test/0:/', { headers }), env);
+	const basic = (user, pass) => 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
+	assert.equal((await request({ Authorization: basic('viewer', 'wrong') })).status, 401);
+	assert.equal((await request({ Authorization: basic('someone', 'test:password') })).status, 401);
+	assert.equal((await request({ Authorization: basic('viewer', 'test:password') })).status, 200);
 });
