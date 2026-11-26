@@ -1330,6 +1330,14 @@ svg.icon {
 	margin-top: var(--s4);
 }
 
+/* A folder can be created inside the picker without leaving it. */
+.move-create {
+	display: flex;
+	gap: var(--s1);
+	padding: var(--s2) var(--s2) var(--s2) var(--s4);
+	border-bottom: 1px solid var(--border);
+}
+
 .move-new {
 	flex: 1;
 	min-width: 0;
@@ -1571,6 +1579,28 @@ svg.icon {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* Each batch keeps its own overview, file rows and controls. */
+.upload-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.upload-batch {
+	display: flex;
+	flex-direction: column;
+	border-bottom: 1px solid var(--border);
+}
+
+.upload-batch:last-child {
+	border-bottom: 0;
+}
+
+.upload-batch .upload-list {
+	flex: none;
+	max-height: 224px;
 }
 
 .upload-overview {
