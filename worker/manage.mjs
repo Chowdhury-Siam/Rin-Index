@@ -147,9 +147,13 @@ async function resolveFolder(gd, path) {
 	try {
 		id = await gd.findPathId(path);
 	} catch {
-		return failure(502, 'Google Drive could not open this folder. Try again.');
+		return failure(502, 'Google Drive could not be reached. Try again.');
 	}
 	if (!id) return failure(404, 'This folder is no longer inside the index.');
+	// findPathId answers the configured root ID for the index root. When that
+	// is Drive's "root" alias, file metadata carries the resolved folder ID as
+	// the parent, so the comparisons and writes below use that one.
+	if (id === gd.root.id && gd.rootFolderId && gd.rootFolderId !== id) id = gd.rootFolderId;
 	return { ok: true, id };
 }
 
