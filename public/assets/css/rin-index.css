@@ -1,54 +1,54 @@
 /* Rin Index — visual system.
  *
- * Structure follows compact, flat UI conventions: a 4px spacing scale, 1px
- * low-alpha borders, tiered flat surfaces, 14px body text, and almost no
- * shadows. The identity is Rin Tohsaka's: a near-black page, deep crimson
- * for every accent, dark burgundy for selected and tinted surfaces, soft
- * white and muted grey text. Bricolage Grotesque carries headings and
- * numerals, and an inline stroke icon set was drawn for this project. Dark
- * is the only theme; the palette is fixed and never follows the device.
+ * The interface follows the chat.z.ai design language: a monochrome dark
+ * shell that is flat by choice — no gradients, no glow, no accent hue.
+ * Surfaces step through four greys (#0d0d0d page, #161616 header and cards,
+ * #1e1e1e nested bands, #2e2e2e borders and fills); white is the accent and
+ * black is its contrast. Cards sit on 16px radii, actions are full pills,
+ * and one system sans face carries everything at 15px. Dark is the only
+ * theme; the palette is fixed and never follows the device.
  */
 
 /* ------------------------------------------------------------ tokens --- */
 
 :root {
-	/* Surfaces: page sits behind panels; subtle marks bands inside panels,
-	 * well is for inputs and tracks, tint is the burgundy wash. */
-	--page: #0c090b;
-	--surface: #151014;
-	--subtle: #221a1f;
-	--well: #1b1519;
-	--tint: #211019;
-	--selected: #2e1120;
+	/* Surfaces: page sits behind the header bar and cards; subtle is a band
+	 * inside a card, well is for tracks and input fields. */
+	--page: #0d0d0d;
+	--surface: #161616;
+	--subtle: #1e1e1e;
+	--well: #232323;
+	--tint: #1e1e1e;
+	--selected: #2e2e2e;
 
-	/* Lines and hover veils stay at low alpha so flat surfaces read as one. */
-	--border: rgba(243, 237, 240, 0.1);
-	--border-strong: rgba(243, 237, 240, 0.2);
-	--control-border: #8f7f86;
-	--hover: rgba(243, 237, 240, 0.05);
-	--glow: rgba(200, 16, 46, 0.07);
+	/* Lines and hover veils stay quiet so flat surfaces read as one. */
+	--border: #232323;
+	--border-strong: #2e2e2e;
+	--control-border: #3d3d3d;
+	--hover: rgba(255, 255, 255, 0.05);
+	--glow: transparent;
 
 	/* Type ramp. */
-	--text: #f3edf0;
-	--text-2: #c9bcc2;
-	--text-3: #a4959c;
+	--text: #ffffff;
+	--text-2: #cfcfcf;
+	--text-3: #9a9a9a;
 
-	/* Rin crimson does the accent work; burgundy is its darker echo. */
-	--accent: #c8102e;
-	--accent-hover: #a90d27;
-	--accent-contrast: #fff5f7;
-	--accent-subtle: rgba(200, 16, 46, 0.18);
-	--accent-text: #ff7a90;
-	--burgundy: #4a1024;
+	/* White does the accent work; black is its contrast. */
+	--accent: #ffffff;
+	--accent-hover: #e6e6e6;
+	--accent-contrast: #0d0d0d;
+	--accent-subtle: rgba(255, 255, 255, 0.12);
+	--accent-text: #ffffff;
+	--burgundy: #3a3a3a;
 
-	--danger: #ff8f9b;
-	--danger-subtle: rgba(200, 16, 46, 0.18);
-	--danger-fill: #a3162b;
+	--danger: #ff8080;
+	--danger-subtle: rgba(200, 60, 60, 0.16);
+	--danger-fill: #b3363f;
 
-	--ring: rgba(255, 122, 144, 0.55);
-	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-	--shadow-2: 0 16px 44px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.45);
-	--scrim: rgba(8, 4, 6, 0.68);
+	--ring: rgba(255, 255, 255, 0.45);
+	--shadow-1: none;
+	--shadow-2: 0 12px 40px rgba(0, 0, 0, 0.5);
+	--scrim: rgba(0, 0, 0, 0.62);
 
 	--s1: 4px;
 	--s2: 8px;
@@ -58,27 +58,19 @@
 	--s6: 24px;
 
 	--r-sm: 6px;
-	--r-md: 8px;
-	--r-lg: 12px;
+	--r-md: 10px;
+	--r-lg: 16px;
 	--r-xl: 16px;
 	--r-full: 999px;
 
 	--font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-	--font-display: 'Rin Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	--font-display: var(--font-ui);
 	--font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
 	--ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 	--speed: 0.15s;
 
 	color-scheme: dark;
-}
-
-@font-face {
-	font-family: 'Rin Grotesque';
-	font-style: normal;
-	font-weight: 400 700;
-	font-display: swap;
-	src: url('/assets/fonts/BricolageGrotesque-latin.woff2') format('woff2');
 }
 
 /* ------------------------------------------------------------- basics --- */
@@ -97,15 +89,15 @@ html {
 
 body {
 	margin: 0;
-	background: radial-gradient(900px 360px at 50% -140px, var(--glow), transparent 72%) no-repeat, var(--page);
+	background: var(--page);
 	color: var(--text);
-	font: 400 0.875rem/1.5 var(--font-ui);
+	font: 400 0.9375rem/1.5 var(--font-ui);
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
 }
 
 a {
-	color: var(--accent-text);
+	color: var(--text);
 	text-decoration: none;
 }
 
@@ -169,10 +161,108 @@ svg.icon {
 
 /* --------------------------------------------------------------- frame --- */
 
+/* A left icon rail carries the primary destinations; the main column holds
+ * the header bar and content, and rounds its top-left corner over the rail
+ * the way the reference design does. */
 .frame {
-	max-width: 1080px;
+	display: flex;
+	min-height: 100vh;
+}
+
+.rail {
+	position: sticky;
+	top: 0;
+	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--s1);
+	flex: none;
+	width: 76px;
+	height: 100vh;
+	padding: var(--s3) 0;
+	background: var(--page);
+}
+
+.rail-brand {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	margin-bottom: var(--s3);
+	border-radius: var(--r-md);
+}
+
+.rail-brand img {
+	width: 26px;
+	height: 26px;
+	border-radius: var(--r-sm);
+	/* The mark is drawn in colour; the shell is monochrome, so it is read
+	 * as a light glyph like every other icon. */
+	filter: grayscale(1) brightness(1.85) contrast(0.85);
+}
+
+.rail-brand:hover {
+	background: var(--hover);
+}
+
+.rail-icon,
+.rail-avatar {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border: 0;
+	border-radius: var(--r-md);
+	background: none;
+	color: var(--text-3);
+	cursor: pointer;
+	transition: background var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+
+.rail-icon svg.icon {
+	width: 21px;
+	height: 21px;
+}
+
+.rail-icon:hover,
+.rail-avatar:hover {
+	background: var(--subtle);
+	color: var(--text);
+	text-decoration: none;
+}
+
+.rail-icon.is-active {
+	background: var(--subtle);
+	color: var(--text);
+}
+
+.rail-avatar {
+	margin-top: var(--s2);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-full);
+	color: var(--text-2);
+}
+
+.rail-avatar.is-active {
+	border-color: var(--text-3);
+	color: var(--text);
+}
+
+.main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+#main {
+	width: 100%;
+	max-width: 1040px;
 	margin: 0 auto;
-	padding: 0 var(--s4) 96px;
+	padding: 0 var(--s5) 96px;
 }
 
 .topbar {
@@ -182,68 +272,48 @@ svg.icon {
 	display: flex;
 	align-items: center;
 	gap: var(--s3);
-	height: 52px;
-	padding: 0 max(16px, calc((100vw - 1080px) / 2));
+	min-height: 56px;
+	/* The title lines up with the content column below, whatever the width. */
+	padding: var(--s2) max(var(--s5), calc((100vw - 1116px) / 2 + var(--s5)));
 	border-bottom: 1px solid var(--border);
-	background: color-mix(in srgb, var(--page) 86%, transparent);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
+	border-radius: var(--r-lg) 0 0 0;
+	background: var(--surface);
 }
 
-.brand {
-	display: inline-flex;
+.brand-compact {
+	display: none;
 	align-items: center;
 	gap: var(--s2);
-	font-family: var(--font-display);
-	font-size: 0.95rem;
+	flex: none;
+	font-size: 0.9rem;
 	font-weight: 600;
-	letter-spacing: -0.01em;
 	color: var(--text);
 }
 
-.brand:hover {
-	color: var(--accent-text);
-	text-decoration: none;
-}
-
-.brand img {
-	width: 26px;
-	height: 26px;
+.brand-compact img {
+	width: 22px;
+	height: 22px;
 	border-radius: var(--r-sm);
+	filter: grayscale(1) brightness(1.85) contrast(0.85);
 }
 
 .topbar-actions {
 	margin-left: auto;
 	display: flex;
 	align-items: center;
-	gap: var(--s1);
-}
-
-.source-link {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	font-size: 0.8125rem;
-	color: var(--text-2);
-	padding: var(--s1) var(--s2);
-	border-radius: var(--r-md);
-}
-
-.source-link:hover {
-	color: var(--text);
-	background: var(--hover);
-	text-decoration: none;
+	gap: var(--s2);
 }
 
 .source-link svg.icon {
-	width: 13px;
-	height: 13px;
+	width: 18px;
+	height: 18px;
 }
 
 /* ------------------------------------------------------------ page head --- */
 
 .pagehead {
 	margin: var(--s5) 0 var(--s3);
+	max-width: 960px;
 }
 
 .crumbs {
@@ -260,7 +330,7 @@ svg.icon {
 }
 
 .crumbs a:hover {
-	color: var(--accent-text);
+	color: var(--text);
 }
 
 .crumbs .sep {
@@ -275,22 +345,26 @@ svg.icon {
 }
 
 .page-title {
-	margin: var(--s2) 0 2px;
-	font-family: var(--font-display);
-	font-size: clamp(1.2rem, 2.4vw + 0.6rem, 1.55rem);
+	margin: 0;
+	flex: 1;
+	min-width: 0;
+	font-size: 0.9375rem;
 	font-weight: 600;
-	letter-spacing: -0.02em;
-	line-height: 1.2;
+	letter-spacing: -0.01em;
+	line-height: 1.3;
 	overflow-wrap: anywhere;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .page-title em {
 	font-style: normal;
-	color: var(--accent-text);
+	color: var(--text-2);
 }
 
 .drive-label {
-	margin: 0;
+	margin: var(--s1) 0 0;
 	font-size: 0.8125rem;
 	color: var(--text-3);
 }
@@ -298,8 +372,12 @@ svg.icon {
 .search {
 	display: flex;
 	gap: var(--s2);
-	margin-top: var(--s3);
-	max-width: 430px;
+	margin-top: var(--s4);
+	max-width: 640px;
+	padding: var(--s2);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-lg);
+	background: #1f1f1f;
 }
 
 .search .field {
@@ -310,22 +388,22 @@ svg.icon {
 
 .search .field > svg.icon {
 	position: absolute;
-	left: 10px;
+	left: 12px;
 	top: 50%;
 	transform: translateY(-50%);
-	width: 15px;
-	height: 15px;
+	width: 16px;
+	height: 16px;
 	color: var(--text-3);
 	pointer-events: none;
 }
 
 .search input {
 	width: 100%;
-	height: 34px;
-	padding: 0 var(--s3) 0 32px;
-	border: 1px solid var(--border-strong);
+	height: 38px;
+	padding: 0 var(--s3) 0 36px;
+	border: 0;
 	border-radius: var(--r-md);
-	background: var(--surface);
+	background: transparent;
 	color: var(--text);
 	font: inherit;
 }
@@ -336,8 +414,47 @@ svg.icon {
 
 .search input:focus {
 	outline: none;
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px var(--ring);
+}
+
+.search:focus-within {
+	border-color: var(--control-border);
+}
+
+/* What the search field accepts beyond words, and the chips a filtered
+ * search is running with. */
+.search-hint {
+	margin: 6px 0 0;
+	font-size: 0.7rem;
+	color: var(--text-3);
+}
+
+.search-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--s1);
+	margin-top: var(--s2);
+}
+
+.search-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 6px 3px 10px;
+	border: 1px solid var(--accent);
+	border-radius: var(--r-full);
+	background: var(--accent-subtle);
+	color: var(--accent-text);
+	font: 600 0.75rem/1.2 var(--font-ui);
+	cursor: pointer;
+}
+
+.search-chip:hover {
+	color: var(--text);
+}
+
+.search-chip svg.icon {
+	width: 11px;
+	height: 11px;
 }
 
 /* ------------------------------------------------------------- storage --- */
@@ -396,11 +513,11 @@ svg.icon {
 .storage .bar {
 	height: 6px;
 	margin-top: var(--s2);
-	background: var(--well);
+	background: #2e2e2e;
 }
 
 .storage .bar-fill {
-	background: linear-gradient(90deg, var(--burgundy), var(--accent));
+	background: var(--text);
 }
 
 .storage-figures {
@@ -414,6 +531,12 @@ svg.icon {
 	display: flex;
 	align-items: baseline;
 	gap: 6px;
+	border-right: 1px solid var(--border-strong);
+}
+
+.storage-figures div:last-child {
+	border-right: 0;
+	padding-right: 0;
 }
 
 .storage-figures dt {
@@ -437,9 +560,8 @@ svg.icon {
 
 .storage-refresh {
 	position: absolute;
-	top: 50%;
+	top: 6px;
 	right: var(--s2);
-	transform: translateY(-50%);
 }
 
 /* --------------------------------------------------------------- panel --- */
@@ -470,23 +592,15 @@ svg.icon {
 
 .panel-title {
 	margin: 0;
-	font-family: var(--font-display);
-	font-size: 0.9rem;
+	font-size: 0.875rem;
 	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
-.panel-tools {
-	margin-left: auto;
-	display: flex;
-	align-items: center;
-	gap: var(--s1);
-}
-
 .count {
+	margin-left: auto;
 	font-size: 0.8125rem;
 	color: var(--text-3);
-	margin-right: var(--s1);
 	font-variant-numeric: tabular-nums;
 }
 
@@ -500,25 +614,27 @@ svg.icon {
 
 /* ------------------------------------------------------------ controls --- */
 
+/* Actions are full pills, the reference's signature: primary is white on
+ * black, secondary is a quiet grey fill, ghost is text alone. */
 .button {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	height: 32px;
-	padding: 0 var(--s3);
-	border-radius: var(--r-md);
+	height: 36px;
+	padding: 0 var(--s4);
+	border-radius: var(--r-full);
 	border: 1px solid transparent;
 	background: transparent;
 	color: var(--text);
-	font: 600 0.8125rem/1 var(--font-ui);
+	font: 500 0.875rem/1 var(--font-ui);
 	cursor: pointer;
 	white-space: nowrap;
 	transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease), color var(--speed) var(--ease);
 }
 
 .button svg.icon {
-	width: 14px;
-	height: 14px;
+	width: 15px;
+	height: 15px;
 }
 
 .button-primary {
@@ -532,13 +648,12 @@ svg.icon {
 }
 
 .button-secondary {
-	border-color: var(--border-strong);
+	background: #2a2a2a;
 	color: var(--text);
 }
 
 .button-secondary:hover {
-	background: var(--hover);
-	border-color: var(--control-border);
+	background: #333;
 	text-decoration: none;
 }
 
@@ -563,7 +678,7 @@ svg.icon {
 
 .button-danger-fill {
 	background: var(--danger-fill);
-	color: #fff5f7;
+	color: #ffffff;
 }
 
 .button-danger-fill:hover {
@@ -670,9 +785,11 @@ svg.icon {
 
 .list-head {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 116px 84px auto;
+	/* The name column flexes; the side block mirrors a row's own fixed
+	 * side, so each label sits exactly over the values it names. */
+	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
-	gap: var(--s3);
+	gap: 0 var(--s3);
 	padding: var(--s2) var(--s4) var(--s1);
 	border-bottom: 1px solid var(--border);
 	font-size: 0.75rem;
@@ -710,7 +827,111 @@ svg.icon {
 }
 
 .list-head.is-managed {
-	grid-template-columns: 28px minmax(0, 1fr) 116px 84px auto;
+	grid-template-columns: 28px minmax(0, 1fr) auto;
+}
+
+/* The head's side block lines up with the rows' side block below it. */
+.list-head-side {
+	display: flex;
+	align-items: center;
+	gap: var(--s4);
+	width: 288px;
+	flex: none;
+}
+
+.list-head-side .head-sort {
+	flex: none;
+}
+
+.list-head-side .head-sort[data-key='modifiedTime'] {
+	width: 112px;
+}
+
+.list-head-side .head-sort[data-key='size'] {
+	width: 76px;
+	justify-content: flex-end;
+	text-align: right;
+}
+
+/* The column labels sort the listing; the active one carries the state. */
+.head-sort {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	justify-self: start;
+	padding: 2px 4px;
+	border: 0;
+	border-radius: var(--r-sm);
+	background: none;
+	color: var(--text-3);
+	font: 600 0.75rem/1.2 var(--font-ui);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.head-sort:hover {
+	color: var(--text);
+	background: var(--hover);
+}
+
+.head-sort.is-active {
+	color: var(--text);
+}
+
+/* Filter chips and the sort menu button above the list. */
+.list-controls {
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+	padding: var(--s2) var(--s4) var(--s2);
+}
+
+.filter-chips {
+	display: flex;
+	align-items: center;
+	gap: var(--s1);
+	flex-wrap: wrap;
+}
+
+.filter-chip {
+	padding: 4px 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--r-full);
+	background: none;
+	color: var(--text-3);
+	font: 600 0.75rem/1.2 var(--font-ui);
+	cursor: pointer;
+	transition: color var(--speed) var(--ease), border-color var(--speed) var(--ease), background var(--speed) var(--ease);
+}
+
+.filter-chip:hover {
+	color: var(--text);
+	border-color: var(--border-strong);
+}
+
+.filter-chip.is-active {
+	color: var(--accent-text);
+	border-color: var(--accent);
+	background: var(--accent-subtle);
+}
+
+.filter-chip:focus-visible,
+.head-sort:focus-visible,
+.search-chip:focus-visible,
+.sort-button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+.sort-button {
+	margin-left: auto;
+	flex: none;
+}
+
+.sort-button svg.icon {
+	margin-right: 2px;
 }
 
 .row-select {
@@ -764,6 +985,27 @@ svg.icon {
 	color: var(--accent-text);
 }
 
+/* A Drive thumbnail render in place of the kind icon; fixed box so a
+ * loading image never shifts the row. */
+.row-main .row-thumb {
+	display: block;
+	width: 26px;
+	height: 26px;
+	flex: none;
+	border: 1px solid var(--border);
+	border-radius: var(--r-sm);
+	background: var(--well);
+	object-fit: cover;
+}
+
+/* The keyboard cursor over the list: a quiet ring on the same column the
+ * pointer would highlight. */
+.row.is-keynav {
+	box-shadow: inset 2px 0 0 var(--accent);
+	outline: 1px solid var(--border-strong);
+	outline-offset: -1px;
+}
+
 .row-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -774,6 +1016,10 @@ svg.icon {
 	display: flex;
 	align-items: center;
 	gap: var(--s4);
+	/* A fixed side keeps every row's date, size, and actions in one column,
+	 * whether or not this row happens to carry actions. */
+	width: 288px;
+	flex: none;
 }
 
 .row-date,
@@ -796,6 +1042,7 @@ svg.icon {
 	display: flex;
 	align-items: center;
 	gap: 2px;
+	margin-left: auto;
 }
 
 /* Row buttons stay out of sight until the row is pointed at, so an idle
@@ -1269,6 +1516,98 @@ svg.icon {
 	color: var(--text-3);
 }
 
+/* Recently opened files: one line per file, icon, name, and how long ago. */
+.recent-list {
+	list-style: none;
+	margin: 0;
+	max-height: min(52vh, 380px);
+	overflow-y: auto;
+}
+
+.recent-row {
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+	border-bottom: 1px solid var(--border);
+}
+
+.recent-row:last-child {
+	border-bottom: 0;
+}
+
+.recent-link {
+	display: flex;
+	align-items: center;
+	gap: var(--s2);
+	min-width: 0;
+	flex: 1;
+	padding: 8px 4px;
+	border-radius: var(--r-sm);
+	color: var(--text);
+}
+
+.recent-link:hover {
+	background: var(--hover);
+	text-decoration: none;
+}
+
+.recent-link .icon-file {
+	width: 16px;
+	height: 16px;
+	color: var(--text-3);
+}
+
+.recent-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.recent-when {
+	flex: none;
+	font-size: 0.75rem;
+	color: var(--text-3);
+	font-variant-numeric: tabular-nums;
+}
+
+.recent-empty {
+	margin: 0;
+	font-size: 0.8125rem;
+	color: var(--text-3);
+}
+
+/* The keyboard shortcut list. */
+.shortcut {
+	display: flex;
+	align-items: center;
+	gap: var(--s3);
+	padding: 5px 0;
+	font-size: 0.8125rem;
+	color: var(--text-2);
+}
+
+.shortcut-keys {
+	display: inline-flex;
+	gap: 4px;
+	flex: none;
+	min-width: 86px;
+}
+
+.shortcut kbd {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 22px;
+	height: 22px;
+	padding: 0 5px;
+	border: 1px solid var(--border-strong);
+	border-bottom-width: 2px;
+	border-radius: var(--r-sm);
+	background: var(--well);
+	color: var(--text);
+	font: 600 0.75rem/1 var(--font-ui);
+}
+
 /* Signing in: the admin pair from wrangler.toml, asked for once. */
 .signin {
 	max-width: 360px;
@@ -1556,6 +1895,19 @@ svg.icon {
 	gap: var(--s2);
 }
 
+/* The per-batch dismiss for settled history, aligned with the figures. */
+.upload-dismiss {
+	align-self: center;
+	margin-left: var(--s1);
+	width: 26px;
+	height: 26px;
+}
+
+.upload-dismiss svg.icon {
+	width: 13px;
+	height: 13px;
+}
+
 .upload-percent {
 	font-family: var(--font-display);
 	font-size: 1.2rem;
@@ -1730,6 +2082,16 @@ svg.icon {
 	color: var(--accent-text);
 }
 
+/* A settled dock holding failures says so, in the accent's warning tone. */
+.upload-dock.has-failures {
+	border-color: var(--danger-fill);
+	color: var(--danger);
+}
+
+.upload-dock.has-failures svg.icon {
+	color: var(--danger);
+}
+
 .is-spinning {
 	animation: spin 0.9s linear infinite;
 }
@@ -1829,12 +2191,41 @@ svg.icon {
 /* --------------------------------------------------------- responsive --- */
 
 @media (max-width: 720px) {
-	.frame {
-		padding: 0 var(--s3) 110px;
+	/* Phones drop the rail; the header bar carries the brand, the actions,
+	 * and the title on its own lines. */
+	.rail {
+		display: none;
+	}
+
+	.brand-compact {
+		display: inline-flex;
 	}
 
 	.topbar {
-		height: 48px;
+		flex-wrap: wrap;
+		gap: var(--s2);
+		padding: var(--s2) var(--s3);
+		border-radius: 0;
+	}
+
+	.topbar .page-title {
+		flex-basis: 100%;
+		order: 2;
+		white-space: normal;
+	}
+
+	.topbar-actions {
+		order: 1;
+		flex-wrap: wrap;
+	}
+
+	.topbar-actions .button {
+		height: 32px;
+		padding: 0 var(--s3);
+	}
+
+	#main {
+		padding: 0 var(--s3) 110px;
 	}
 
 	.pagehead {
@@ -1864,11 +2255,8 @@ svg.icon {
 		padding: var(--s3);
 	}
 
-	/* The tools row is measured to be wider than a phone; let it fold onto
-	 * its own lines instead of pushing the page sideways. */
-	.panel-tools {
+	.panel-head {
 		flex-wrap: wrap;
-		margin-left: 0;
 	}
 
 	.selection-bar {
@@ -1897,8 +2285,16 @@ svg.icon {
 		padding: var(--s2) var(--s3) var(--s1);
 	}
 
-	.list-head.is-managed > span:not(.row-select) {
+	.list-head.is-managed > *:not(.row-select) {
 		display: none;
+	}
+
+	.list-controls {
+		padding: var(--s2) var(--s3) var(--s1);
+	}
+
+	.sort-button {
+		margin-left: 0;
 	}
 
 	.row,
@@ -1921,6 +2317,7 @@ svg.icon {
 		grid-column: 2 / -1;
 		grid-row: 2;
 		gap: var(--s3);
+		width: auto;
 		margin-top: 3px;
 	}
 
