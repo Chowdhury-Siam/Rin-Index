@@ -7,6 +7,16 @@ const segments = isSearch ? [] : path.slice(root.length).split('/').filter(Boole
 const searchPath = '/' + order + ':search';
 const driveType = ['My Drive', 'Shared Drive', 'Google Drive folder'][model.root_type] || 'Google Drive';
 
+// The page's own requests name themselves so an admin gate can answer 401
+// without the browser opening its login prompt over the page.
+const CLIENT_MARKER = 'Rin Index';
+const canAdmin = Boolean(model.can_upload);
+const isAdmin = Boolean(model.is_admin);
+// Rows the admin may act on: folders carry the full set, search results
+// everything except selection (they were listed somewhere else).
+const rowMenus = isAdmin && (isFolder || isSearch);
+const selectable = isAdmin && isFolder && !isSearch;
+
 const folderMime = 'application/vnd.google-apps.folder';
 const dates = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const numbers = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
@@ -39,6 +49,13 @@ const iconSprite = `
 	<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.4" y="10.6" width="13.2" height="9" rx="1.6"/><path d="M8.4 10.6V8.4a3.6 3.6 0 0 1 7.2 0v2.2"/></symbol>
 	<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.6 3 19.4h18z"/><path d="M12 10.4v3.6M12 17.2v.2"/></symbol>
 	<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4.4v4.2h-4.2"/></symbol>
+	<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+	<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4.4 19.6h4L19 9l-4-4L4.4 15.6z"/><path d="m13.6 6.4 4 4"/></symbol>
+	<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.4 7h15.2"/><path d="M9 7V5.6c0-.9.7-1.6 1.6-1.6h2.8c.9 0 1.6.7 1.6 1.6V7"/><path d="m6.4 7 .9 11.4c.1.9.8 1.6 1.7 1.6h6c.9 0 1.6-.7 1.7-1.6L17.6 7"/><path d="M10 11v5M14 11v5"/></symbol>
+	<symbol id="i-move" viewBox="0 0 24 24"><path d="M3.8 6.4c0-1 .8-1.8 1.8-1.8h3.5c.5 0 1 .2 1.3.6l1 1.2h5.6c1 0 1.8.8 1.8 1.8v9.4c0 1-.8 1.8-1.8 1.8H5.6c-1 0-1.8-.8-1.8-1.8z"/><path d="M9.5 14.6h5M12.4 12l2.6 2.6-2.6 2.6"/></symbol>
+	<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+	<symbol id="i-new-folder" viewBox="0 0 24 24"><path d="M3.8 6.4c0-1 .8-1.8 1.8-1.8h3.5c.5 0 1 .2 1.3.6l1 1.2h7c1 0 1.8.8 1.8 1.8v9.4c0 1-.8 1.8-1.8 1.8H5.6c-1 0-1.8-.8-1.8-1.8z"/><path d="M12 10.4v5M9.5 12.9h5"/></symbol>
+	<symbol id="i-signout" viewBox="0 0 24 24"><path d="M9.5 5.2H6.6c-.9 0-1.6.7-1.6 1.6v10.4c0 .9.7 1.6 1.6 1.6h2.9"/><path d="m14.5 8.4 3.6 3.6-3.6 3.6"/><path d="M18.1 12H9.9"/></symbol>
 </svg>`;
 
 function icon(name, className) {
@@ -59,6 +76,7 @@ document.body.innerHTML = iconSprite + `
 			<div class="topbar-actions">
 				<button class="icon-btn theme-toggle" type="button" aria-label="Switch theme"></button>
 				<a class="source-link" href="https://github.com/Chowdhury-Siam/Google-Index">Source ${'' /* icon appended in JS */}</a>
+				<button class="icon-btn admin-lock" type="button" aria-label="Admin sign-in" hidden></button>
 			</div>
 		</header>
 		<main id="main" tabindex="-1">
@@ -73,20 +91,38 @@ document.body.innerHTML = iconSprite + `
 					</span>
 					<button class="button button-primary" type="submit">Search</button>
 				</form>
+				<section class="storage" aria-label="Drive storage" hidden>
+					<div class="storage-head">
+						<h2 class="storage-title"><svg class="icon" aria-hidden="true"><use href="#i-archive"></use></svg>Drive storage</h2>
+						<span class="storage-percent">—</span>
+					</div>
+					<div class="bar"><div class="bar-fill"></div></div>
+					<dl class="storage-figures"></dl>
+					<p class="storage-note"></p>
+					<button class="icon-btn storage-refresh" type="button" aria-label="Refresh storage figures"></button>
+				</section>
 			</section>
 			<section class="folder-notes markdown" aria-label="Folder notes" hidden></section>
 			<section class="panel">
+				<div class="selection-bar" hidden>
+					<strong class="selection-count"></strong>
+					<button class="button button-ghost selection-rename" type="button"><span class="button-label">Rename</span></button>
+					<button class="button button-secondary selection-move" type="button"><span class="button-label">Move to…</span></button>
+					<button class="button button-danger selection-delete" type="button"><span class="button-label">Delete</span></button>
+					<button class="button button-ghost selection-clear" type="button"><span class="button-label">Clear</span></button>
+				</div>
 				<div class="panel-head">
 					<h2 class="panel-title"></h2>
 					<div class="panel-tools">
 						<p class="count"></p>
 						<a class="button button-secondary save-folder-links" hidden>Save links (.txt)</a>
-						<button class="button button-primary download-files" type="button" hidden>Download files</button>
-						<button class="button button-secondary admin-signin" type="button" hidden>Admin</button>
-						<button class="button button-primary upload-files" type="button" hidden>Upload</button>
+						<button class="button button-secondary download-files" type="button" hidden>Download files</button>
+						<button class="button button-primary new-button" type="button" hidden>New</button>
 					</div>
 				</div>
+				<div class="drop-zone" hidden>Drop files or folders to upload them here</div>
 				<input class="upload-input" type="file" multiple hidden>
+				<input class="folder-input" type="file" multiple hidden>
 				<p class="load-status" role="status" hidden></p>
 				<div class="list-head" aria-hidden="true">
 					<span>Name</span><span>Last modified</span><span>Size</span><span></span>
@@ -113,7 +149,8 @@ document.body.innerHTML = iconSprite + `
 				<span class="spacer"></span>
 				<button class="icon-btn signin-close" type="button" aria-label="Close"></button>
 			</div>
-			<form class="modal-body signin-form">
+			<form class="modal-body signin-form dialog-form">
+				<p class="signin-note">The administrator pair from this index's settings unlocks uploads and file management.</p>
 				<p class="signin-error" hidden></p>
 				<div class="field">
 					<label for="admin-user">Username</label>
@@ -123,8 +160,95 @@ document.body.innerHTML = iconSprite + `
 					<label for="admin-pass">Password</label>
 					<input id="admin-pass" name="pass" type="password" autocomplete="current-password" required>
 				</div>
+				<p class="signin-busy" hidden>Signing in…</p>
 				<button class="button button-primary" type="submit">Sign in</button>
 			</form>
+		</div>
+	</div>
+
+	<div class="modal-backdrop mkdir-backdrop" hidden>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="mkdir-title">
+			<div class="modal-head">
+				<h2 id="mkdir-title">New folder</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn mkdir-close" type="button" aria-label="Close"></button>
+			</div>
+			<form class="modal-body dialog-form mkdir-form">
+				<div class="field">
+					<label for="mkdir-name">Folder name</label>
+					<input id="mkdir-name" name="name" maxlength="500" autocomplete="off" spellcheck="false" required>
+				</div>
+				<p class="prompt-error" hidden></p>
+				<div class="modal-foot">
+					<button class="button button-secondary" type="button" data-close>Cancel</button>
+					<button class="button button-primary" type="submit">Create folder</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<div class="modal-backdrop rename-backdrop" hidden>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+			<div class="modal-head">
+				<h2 id="rename-title">Rename</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn rename-close" type="button" aria-label="Close"></button>
+			</div>
+			<form class="modal-body dialog-form rename-form">
+				<div class="field">
+					<label for="rename-name">New name</label>
+					<input id="rename-name" name="name" maxlength="500" autocomplete="off" spellcheck="false" required>
+				</div>
+				<p class="prompt-hint">The name must be unique in this folder; two items with one name could not both be opened.</p>
+				<p class="prompt-error" hidden></p>
+				<div class="modal-foot">
+					<button class="button button-secondary" type="button" data-close>Cancel</button>
+					<button class="button button-primary" type="submit">Rename</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<div class="modal-backdrop delete-backdrop" hidden>
+		<div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+			<div class="modal-head">
+				<h2 id="delete-title">Delete</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn delete-close" type="button" aria-label="Close"></button>
+			</div>
+			<form class="modal-body dialog-form delete-form">
+				<p class="prompt-text"></p>
+				<ul class="prompt-list"></ul>
+				<p class="prompt-hint">Items go to Google Drive's trash, where they can be restored for 30 days. Trashed files keep counting against the storage quota.</p>
+				<p class="prompt-error" hidden></p>
+				<div class="modal-foot">
+					<button class="button button-secondary" type="button" data-close>Cancel</button>
+					<button class="button button-danger-fill" type="submit">Delete</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<div class="modal-backdrop move-backdrop" hidden>
+		<div class="modal move-modal" role="dialog" aria-modal="true" aria-labelledby="move-title">
+			<div class="modal-head">
+				<h2 id="move-title">Move</h2>
+				<span class="spacer"></span>
+				<button class="icon-btn move-close" type="button" aria-label="Close"></button>
+			</div>
+			<div class="move-bar">
+				<nav class="move-crumbs" aria-label="Destination folder"></nav>
+			</div>
+			<form class="move-create">
+				<input class="move-new" placeholder="New folder here" maxlength="500" autocomplete="off" spellcheck="false">
+				<button class="icon-btn move-create-btn" type="submit" aria-label="Create this folder"></button>
+			</form>
+			<ul class="move-list" aria-label="Folders"></ul>
+			<p class="move-status" role="status"></p>
+			<div class="modal-foot">
+				<button class="button button-secondary" type="button" data-close>Cancel</button>
+				<button class="button button-primary move-here" type="button">Move here</button>
+			</div>
 		</div>
 	</div>
 
@@ -144,31 +268,13 @@ document.body.innerHTML = iconSprite + `
 		</div>
 	</div>
 
-	<div class="modal-backdrop upload-backdrop" hidden>
-		<div class="modal upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title">
-			<div class="modal-head">
-				<h2 id="upload-title">Uploading files</h2>
-				<span class="spacer"></span>
-				<button class="icon-btn upload-minimize" type="button" aria-label="Minimize upload progress"></button>
-				<button class="icon-btn upload-close" type="button" aria-label="Close upload progress"></button>
-			</div>
-			<div class="upload-overview">
-				<div class="topline">
-					<span class="upload-percent">0%</span>
-					<span class="upload-figures"></span>
-				</div>
-				<div class="bar"><div class="bar-fill"></div></div>
-				<div class="upload-sub"></div>
-			</div>
-			<ul class="upload-list"></ul>
-			<div class="modal-foot">
-				<button class="button button-secondary upload-pause-all" type="button">Pause all</button>
-				<button class="button button-secondary upload-resume-all" type="button">Resume all</button>
-				<button class="button button-danger upload-cancel-rest" type="button">Cancel remaining</button>
-				<button class="button button-secondary upload-retry-failed" type="button" hidden>Retry failed</button>
-				<button class="button button-secondary upload-copy-report" type="button" hidden>Copy report</button>
-			</div>
+	<div class="upload-panel" hidden role="region" aria-label="Upload progress">
+		<div class="upload-head">
+			<h2>Uploads</h2>
+			<button class="icon-btn upload-minimize" type="button" aria-label="Fold uploads away"></button>
+			<button class="icon-btn upload-close" type="button" aria-label="Close uploads"></button>
 		</div>
+		<div class="upload-body"></div>
 	</div>
 
 	<button class="upload-dock" type="button" hidden></button>
@@ -184,9 +290,19 @@ document.querySelector('.preview-download').append(icon('download'));
 document.querySelector('.preview-close').append(icon('x'));
 document.querySelector('.upload-minimize').append(icon('collapse'));
 document.querySelector('.upload-close').append(icon('x'));
+document.querySelector('.storage-refresh').append(icon('refresh'));
+document.querySelector('.mkdir-close').append(icon('x'));
+document.querySelector('.rename-close').append(icon('x'));
+document.querySelector('.delete-close').append(icon('x'));
+document.querySelector('.move-close').append(icon('x'));
+document.querySelector('.move-create-btn').append(icon('plus'));
 document.querySelector('.download-files').prepend(icon('download'));
-document.querySelector('.upload-files').prepend(icon('upload'));
 document.querySelector('.save-folder-links').prepend(icon('download'));
+document.querySelector('.new-button').prepend(icon('plus'));
+document.querySelector('.selection-rename').prepend(icon('edit'));
+document.querySelector('.selection-move').prepend(icon('move'));
+document.querySelector('.selection-delete').prepend(icon('trash'));
+document.querySelector('.selection-clear').prepend(icon('x'));
 
 function create(tag, className, text) {
 	const element = document.createElement(tag);
@@ -367,9 +483,42 @@ function downloadIconLink(filePath, fileName) {
 /* ------------------------------------------------------------- data load --- */
 
 async function post(endpoint, fields = {}) {
-	const response = await fetch(endpoint, { method: 'POST', body: new URLSearchParams(fields) });
+	const response = await fetch(endpoint, {
+		method: 'POST',
+		headers: { 'X-Requested-With': CLIENT_MARKER },
+		body: new URLSearchParams(fields)
+	});
 	if (!response.ok) throw new Error('Request failed. Try again in a moment.');
 	return response;
+}
+
+// A JSON request to a management, storage or sign-in route. A 401 opens the
+// sign-in dialog instead of surfacing as an error, and every other refusal
+// arrives as an Error carrying the message the Worker wrote for it.
+async function apiJson(url, body, method = 'POST') {
+	const response = await fetch(url, {
+		method,
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Requested-With': CLIENT_MARKER
+		},
+		body: body === undefined ? undefined : JSON.stringify(body)
+	});
+	if (response.status === 401) {
+		promptSignin('Your admin session ended. Sign in again to continue.');
+		const error = new Error('Admin sign-in required.');
+		error.signin = true;
+		throw error;
+	}
+	let data = null;
+	try { data = await response.json(); } catch {}
+	if (!response.ok) {
+		const error = new Error(data?.error || 'The request did not go through. Try again in a moment.');
+		if (data?.code) error.code = data.code;
+		if (data?.retry === true) error.retry = true;
+		throw error;
+	}
+	return data;
 }
 
 const notice = document.querySelector('.notice');
@@ -393,11 +542,32 @@ async function openResult(button, file, kind) {
 	}
 }
 
+/* ------------------------------------------------------------- file rows --- */
+
+const panel = document.querySelector('.panel');
+const panelHead = document.querySelector('.panel-head');
+const selectionBar = document.querySelector('.selection-bar');
+const listHead = document.querySelector('.list-head');
+const fileList = document.querySelector('.file-list');
+const selectAllBox = create('input', 'checkbox');
+const selected = new Map();
+
 function row(file) {
 	const kind = fileKind(file);
 	const folder = kind.type === 'folder';
 	const filePath = path + encodeURIComponent(file.name);
 	const entry = create('li', 'row');
+	entry._item = file;
+
+	if (selectable) {
+		const box = create('input', 'checkbox');
+		box.type = 'checkbox';
+		box.setAttribute('aria-label', 'Select ' + file.name);
+		box.addEventListener('change', () => setSelected(entry, box.checked));
+		const wrap = create('label', 'row-select');
+		wrap.append(box);
+		entry.append(wrap);
+	}
 
 	const main = create(isSearch ? 'button' : 'a', 'row-main' + (folder ? ' is-folder' : ''));
 	if (isSearch) {
@@ -422,9 +592,69 @@ function row(file) {
 			downloadIconLink(filePath, file.name)
 		);
 	}
+	if (rowMenus) {
+		const menuButton = create('button', 'icon-btn');
+		menuButton.type = 'button';
+		menuButton.title = 'Actions';
+		menuButton.setAttribute('aria-label', 'Actions for ' + file.name);
+		menuButton.append(icon('more'));
+		menuButton.addEventListener('click', () => openRowMenu(menuButton, file, entry));
+		actions.append(menuButton);
+	}
 	side.append(actions);
 	entry.append(main, side);
 	return entry;
+}
+
+function setSelected(entry, on) {
+	const file = entry._item;
+	if (on) selected.set(file.id, file);
+	else selected.delete(file.id);
+	entry.classList.toggle('is-selected', on);
+	entry.querySelector('.checkbox').checked = on;
+	updateSelection();
+}
+
+function updateSelection() {
+	const size = selected.size;
+	selectionBar.hidden = !size;
+	panelHead.hidden = Boolean(size) && isFolder && !isSearch;
+	panel.classList.toggle('has-selection', Boolean(size));
+	selectionBar.querySelector('.selection-count').textContent = size + (size === 1 ? ' item selected' : ' items selected');
+	selectionBar.querySelector('.selection-rename').disabled = size !== 1;
+	selectionBar.querySelector('.selection-move').disabled = !size;
+	selectionBar.querySelector('.selection-delete').disabled = !size;
+	const boxes = fileList.querySelectorAll('.checkbox');
+	const checked = fileList.querySelectorAll('.row.is-selected').length;
+	selectAllBox.checked = boxes.length > 0 && checked === boxes.length;
+	selectAllBox.indeterminate = checked > 0 && checked < boxes.length;
+}
+
+function clearSelection() {
+	for (const entry of fileList.querySelectorAll('.row.is-selected')) {
+		setSelected(entry, false);
+	}
+}
+
+selectAllBox.type = 'checkbox';
+selectAllBox.setAttribute('aria-label', 'Select every item in this folder');
+selectAllBox.addEventListener('change', () => {
+	const on = selectAllBox.checked;
+	for (const entry of fileList.querySelectorAll('.row')) setSelected(entry, on);
+});
+if (selectable) {
+	listHead.classList.add('is-managed');
+	fileList.classList.add('is-managed');
+	listHead.removeAttribute('aria-hidden');
+	const selectCell = create('span', 'row-select');
+	selectCell.append(selectAllBox);
+	listHead.replaceChildren(
+		selectCell,
+		create('span', '', 'Name'),
+		create('span', '', 'Last modified'),
+		create('span', '', 'Size'),
+		create('span')
+	);
 }
 
 async function showMarkdown(file, target) {
@@ -439,10 +669,10 @@ async function showMarkdown(file, target) {
 	}
 }
 
-const panel = document.querySelector('.panel');
+/* --------------------------------------------------------- listing & load --- */
+
 const panelActions = document.querySelector('.panel-actions');
 const loadButton = document.querySelector('.load-more');
-const fileList = document.querySelector('.file-list');
 const count = document.querySelector('.count');
 const folderPassword = document.querySelector('.folder-password');
 const downloadFilesButton = document.querySelector('.download-files');
@@ -562,6 +792,8 @@ async function loadPage() {
 function refreshListing() {
 	fileList.replaceChildren();
 	count.textContent = '';
+	selected.clear();
+	updateSelection();
 	for (const selector of ['.folder-notes', '.folder-readme']) {
 		const section = document.querySelector(selector);
 		section.replaceChildren();
@@ -571,6 +803,566 @@ function refreshListing() {
 	nextPageToken = '';
 	loadPage();
 }
+
+/* --------------------------------------------------------- menus & layers --- */
+
+// Overlays stack: Escape closes the top one, whether that is a menu, a
+// dialog, the upload panel or the preview.
+const layers = [];
+function pushLayer(close) { layers.push(close); }
+function removeLayer(close) {
+	const index = layers.indexOf(close);
+	if (index >= 0) layers.splice(index, 1);
+}
+function closeLayer(close) {
+	removeLayer(close);
+	close();
+}
+document.addEventListener('keydown', event => {
+	if (event.key !== 'Escape') return;
+	const top = layers.at(-1);
+	if (top) {
+		event.preventDefault();
+		closeLayer(top);
+	}
+});
+
+// One menu element serves every list: anchored under its button on wide
+// screens, a bottom sheet on narrow ones. The backdrop only closes it.
+const menuBackdrop = create('button', 'menu-backdrop');
+menuBackdrop.type = 'button';
+menuBackdrop.setAttribute('aria-label', 'Close menu');
+menuBackdrop.hidden = true;
+let menuCloser = null;
+
+function closeMenu() {
+	if (!menuCloser) return;
+	menuBackdrop.hidden = true;
+	menuBackdrop.classList.remove('is-sheet');
+	menuBackdrop.remove();
+	const popover = document.querySelector('.popover');
+	if (popover) popover.remove();
+	const close = menuCloser;
+	menuCloser = null;
+	closeLayer(close);
+}
+
+function showMenu(anchor, items) {
+	closeMenu();
+	const sheet = matchMedia('(max-width: 720px)').matches;
+	const popover = create('div', 'popover ' + (sheet ? 'is-sheet' : 'is-menu'));
+	popover.setAttribute('role', 'menu');
+	for (const item of items) {
+		if (item.sep) { popover.append(create('div', 'popover-sep')); continue; }
+		if (item.heading) { popover.append(create('div', 'popover-label', item.heading)); continue; }
+		const button = create('button', 'popover-item' + (item.danger ? ' is-danger' : ''));
+		button.type = 'button';
+		button.setAttribute('role', 'menuitem');
+		if (item.icon) button.append(icon(item.icon));
+		button.append(create('span', '', item.label));
+		button.disabled = Boolean(item.disabled);
+		if (item.disabled && item.reason) button.title = item.reason;
+		button.addEventListener('click', () => {
+			closeMenu();
+			if (item.onPick) item.onPick();
+		});
+		popover.append(button);
+	}
+	menuBackdrop.classList.toggle('is-sheet', sheet);
+	menuBackdrop.hidden = false;
+	document.body.append(menuBackdrop, popover);
+	menuBackdrop.addEventListener('click', closeMenu, { once: true });
+
+	if (!sheet) {
+		const rect = anchor.getBoundingClientRect();
+		const width = popover.offsetWidth;
+		const height = popover.offsetHeight;
+		let left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+		let top = rect.bottom + 6;
+		if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
+		popover.style.left = left + 'px';
+		popover.style.top = top + 'px';
+	}
+	popover.addEventListener('keydown', event => {
+		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+		event.preventDefault();
+		const buttons = [...popover.querySelectorAll('.popover-item:not(:disabled)')];
+		if (!buttons.length) return;
+		const index = buttons.indexOf(document.activeElement);
+		const next = event.key === 'ArrowDown'
+			? buttons[(index + 1 + buttons.length) % buttons.length]
+			: buttons[(index - 1 + buttons.length) % buttons.length];
+		next.focus();
+	});
+	const close = () => {
+		menuBackdrop.hidden = true;
+		menuBackdrop.remove();
+		popover.remove();
+	};
+	menuCloser = close;
+	pushLayer(close);
+	const first = popover.querySelector('.popover-item:not(:disabled)');
+	if (first) first.focus();
+	// A menu anchored to a row goes stale the moment the page moves.
+	window.addEventListener('scroll', closeMenu, { once: true, capture: true });
+	window.addEventListener('resize', closeMenu, { once: true });
+}
+
+function bindDialog(backdrop, { onOpen, onClose } = {}) {
+	let closer = null;
+	const shut = () => { if (closer) closeLayer(closer); };
+	backdrop.addEventListener('click', event => {
+		if (event.target === backdrop) shut();
+	});
+	for (const button of backdrop.querySelectorAll('[data-close]')) {
+		button.addEventListener('click', shut);
+	}
+	return {
+		open() {
+			backdrop.hidden = false;
+			closer = () => {
+				backdrop.hidden = true;
+				if (onClose) onClose();
+			};
+			pushLayer(closer);
+			if (onOpen) onOpen();
+		},
+		close: shut,
+		isOpen: () => !backdrop.hidden
+	};
+}
+
+function showFormError(slot, message) {
+	slot.textContent = message;
+	slot.hidden = false;
+}
+
+// The same name rules the Worker enforces, checked before a request is made.
+function cleanNameInput(value) {
+	const name = String(value || '').trim();
+	if (!name || name.length > 500 || /[\\/\x00-\x1f\x7f]/.test(name) || name === '.' || name === '..') return '';
+	return name;
+}
+
+/* ------------------------------------------------------- manage requests --- */
+
+// Up to 12 ids per request, matching the Worker's batch limit; the answers
+// are merged so a big selection behaves like one action.
+async function runBatched(folderUrl, action, ids, to) {
+	const merged = { changed: 0, failed: 0, results: [] };
+	for (let offset = 0; offset < ids.length; offset += 12) {
+		const idsPart = ids.slice(offset, offset + 12);
+		const body = action === 'move' ? { ids: idsPart, to } : { ids: idsPart };
+		const part = await apiJson(folderUrl + '?manage=' + action, body);
+		merged.changed += part.changed || 0;
+		merged.failed += part.failed || 0;
+		merged.results.push(...(part.results || []));
+	}
+	return merged;
+}
+
+function reportResults(verb, merged) {
+	if (merged.failed) {
+		const bad = merged.results.filter(result => !result.ok);
+		const shown = bad.slice(0, 3).map(result => result.name + (result.error ? ' — ' + result.error : '')).join('; ');
+		showToast(merged.changed + ' ' + verb + '. ' + merged.failed + ' could not be: ' + shown + (bad.length > 3 ? '; …' : ''));
+	} else if (merged.changed) {
+		showToast(merged.changed + (merged.changed === 1 ? ' item ' : ' items ') + verb + '.');
+	} else {
+		showToast('Nothing changed — the items were already there.');
+	}
+}
+
+// Search results were listed somewhere else, so the folder an item sits in is
+// resolved through its Drive ID before any action runs.
+async function rowFolderUrl(file) {
+	if (!isSearch) return path;
+	const result = await post('/' + order + ':id2path', { id: file.id });
+	const target = await result.text();
+	if (!target.startsWith('/')) throw new Error('This item is outside the indexed folder.');
+	return root + target.slice(1, target.lastIndexOf('/') + 1);
+}
+
+async function prepareRowAction(file, run) {
+	try {
+		const folderUrl = await rowFolderUrl(file);
+		await run(folderUrl);
+	} catch (error) {
+		showNotice(error.message);
+	}
+}
+
+/* ------------------------------------------------------------ new folder --- */
+
+const mkdirDialog = bindDialog(document.querySelector('.mkdir-backdrop'), {});
+const mkdirForm = document.querySelector('.mkdir-form');
+const mkdirError = mkdirForm.querySelector('.prompt-error');
+
+function openMkdir() {
+	mkdirForm.elements.name.value = '';
+	mkdirError.hidden = true;
+	mkdirDialog.open();
+	mkdirForm.elements.name.focus();
+}
+
+mkdirForm.addEventListener('submit', async event => {
+	event.preventDefault();
+	mkdirError.hidden = true;
+	const name = cleanNameInput(mkdirForm.elements.name.value);
+	if (!name) return showFormError(mkdirError, 'Use a name without “/” or control characters.');
+	const submit = mkdirForm.querySelector('[type="submit"]');
+	submit.disabled = true;
+	try {
+		const data = await apiJson(path + '?manage=mkdir', { name });
+		mkdirDialog.close();
+		refreshListing();
+		loadStorage(true);
+		showToast(data.existed ? 'A folder named “' + name + '” was already here.' : 'Folder “' + name + '” created.');
+	} catch (error) {
+		if (!error.signin) showFormError(mkdirError, error.message);
+	} finally {
+		submit.disabled = false;
+	}
+});
+
+/* ---------------------------------------------------------------- rename --- */
+
+const renameDialog = bindDialog(document.querySelector('.rename-backdrop'), {});
+const renameForm = document.querySelector('.rename-form');
+const renameError = renameForm.querySelector('.prompt-error');
+let renameTarget = null;
+
+function openRename(file, folderUrl) {
+	renameTarget = { file, folderUrl };
+	renameForm.elements.name.value = file.name;
+	renameError.hidden = true;
+	renameDialog.open();
+	const input = renameForm.elements.name;
+	input.focus();
+	const dot = file.name.lastIndexOf('.');
+	input.setSelectionRange(0, dot > 0 ? dot : file.name.length);
+}
+
+renameForm.addEventListener('submit', async event => {
+	event.preventDefault();
+	if (!renameTarget) return;
+	renameError.hidden = true;
+	const name = cleanNameInput(renameForm.elements.name.value);
+	if (!name) return showFormError(renameError, 'Use a name without “/” or control characters.');
+	if (name === renameTarget.file.name) { renameDialog.close(); return; }
+	const submit = renameForm.querySelector('[type="submit"]');
+	submit.disabled = true;
+	try {
+		const data = await apiJson(renameTarget.folderUrl + '?manage=rename', { id: renameTarget.file.id, to: name });
+		renameDialog.close();
+		refreshListing();
+		if (data.changed) showToast('Renamed to “' + name + '”.');
+	} catch (error) {
+		if (!error.signin) showFormError(renameError, error.message);
+	} finally {
+		submit.disabled = false;
+	}
+});
+
+/* ---------------------------------------------------------------- delete --- */
+
+const deleteDialog = bindDialog(document.querySelector('.delete-backdrop'), {});
+const deleteForm = document.querySelector('.delete-form');
+const deleteError = deleteForm.querySelector('.prompt-error');
+const deleteText = deleteForm.querySelector('.prompt-text');
+const deleteList = deleteForm.querySelector('.prompt-list');
+let deletePlan = null;
+
+function openDelete(items, folderUrl) {
+	deletePlan = { items, folderUrl };
+	deleteError.hidden = true;
+	deleteText.textContent = items.length === 1
+		? 'Move “' + items[0].name + '” to Google Drive\u2019s trash?'
+		: 'Move ' + items.length + ' items to Google Drive\u2019s trash?';
+	deleteList.replaceChildren(...items.map(item => create('li', '', item.name)));
+	deleteDialog.open();
+}
+
+deleteForm.addEventListener('submit', async event => {
+	event.preventDefault();
+	if (!deletePlan) return;
+	deleteError.hidden = true;
+	const submit = deleteForm.querySelector('[type="submit"]');
+	submit.disabled = true;
+	try {
+		const merged = await runBatched(deletePlan.folderUrl, 'delete', deletePlan.items.map(item => item.id));
+		deleteDialog.close();
+		if (merged.changed) {
+			refreshListing();
+			loadStorage(true);
+		}
+		reportResults('moved to the trash', merged);
+	} catch (error) {
+		if (!error.signin) showFormError(deleteError, error.message);
+	} finally {
+		submit.disabled = false;
+	}
+});
+
+/* ------------------------------------------------------------------ move --- */
+
+const moveDialog = bindDialog(document.querySelector('.move-backdrop'), { onClose() { moveState = null; } });
+const moveTitle = document.querySelector('#move-title');
+const moveCrumbs = document.querySelector('.move-crumbs');
+const moveList = document.querySelector('.move-list');
+const moveStatus = document.querySelector('.move-status');
+const moveForm = document.querySelector('.move-create');
+const moveInput = document.querySelector('.move-new');
+const moveHere = document.querySelector('.move-here');
+let moveState = null;
+
+function openMove(items, folderUrl) {
+	// The picker starts at the folder being viewed, so a common move is one
+	// click away; from a search result it starts at the index root.
+	const start = folderUrl === path && isFolder ? '/' + path.slice(root.length) : '/';
+	const blockedPrefixes = folderUrl === path
+		? items.filter(item => item.mimeType === folderMime).map(item => path + encodeURIComponent(item.name) + '/')
+		: [];
+	moveState = { items, folderUrl, pickerPath: start, blockedPrefixes, busy: false };
+	moveTitle.textContent = items.length === 1 ? 'Move “' + items[0].name + '”' : 'Move ' + items.length + ' items';
+	moveInput.value = '';
+	moveDialog.open();
+	loadMovePicker();
+}
+
+function renderMoveCrumbs(pickerPath) {
+	moveCrumbs.replaceChildren();
+	const parts = pickerPath.split('/').filter(Boolean);
+	const rootButton = create('button', '', 'Drive');
+	rootButton.type = 'button';
+	if (!parts.length) rootButton.setAttribute('aria-current', 'true');
+	else rootButton.addEventListener('click', () => {
+		// A click can land after the dialog closed and cleared the state.
+		if (!moveState) return;
+		moveState.pickerPath = '/';
+		loadMovePicker();
+	});
+	moveCrumbs.append(rootButton);
+	let acc = '';
+	parts.forEach((segment, index) => {
+		acc += segment + '/';
+		moveCrumbs.append(icon('chevron', 'sep'));
+		const button = create('button', '', nameFromPath(segment));
+		button.type = 'button';
+		if (index === parts.length - 1) button.setAttribute('aria-current', 'true');
+		else button.addEventListener('click', () => {
+			if (!moveState) return;
+			moveState.pickerPath = acc;
+			loadMovePicker();
+		});
+		moveCrumbs.append(button);
+	});
+}
+
+async function loadMovePicker() {
+	if (!moveState) return;
+	renderMoveCrumbs(moveState.pickerPath);
+	moveList.replaceChildren();
+	moveStatus.textContent = 'Loading folders…';
+	try {
+		const url = root + moveState.pickerPath.slice(1);
+		let token = '';
+		let index = 0;
+		let folders = [];
+		do {
+			const response = await post(url, { page_index: index, page_token: token });
+			const data = await response.json();
+			if (data.data?.error) throw new Error('Google Drive could not list this folder.');
+			folders.push(...(data.data?.files || []).filter(file => file.mimeType === folderMime));
+			token = data.nextPageToken || '';
+			index++;
+		} while (token);
+		for (const folder of folders) {
+			const child = moveState.pickerPath + encodeURIComponent(folder.name) + '/';
+			const blocked = moveState.blockedPrefixes.some(prefix => child === prefix || child.startsWith(prefix));
+			const button = create('button', 'move-row');
+			button.type = 'button';
+			button.append(icon('folder'), create('span', '', folder.name), icon('chevron', 'chevron'));
+			button.setAttribute('aria-label', 'Open folder ' + folder.name);
+			if (blocked) {
+				button.disabled = true;
+				button.title = 'This folder is inside the selection.';
+			} else {
+				button.addEventListener('click', () => {
+					if (!moveState) return;
+					moveState.pickerPath = child;
+					loadMovePicker();
+				});
+			}
+			const wrap = create('li');
+			wrap.append(button);
+			moveList.append(wrap);
+		}
+		moveStatus.textContent = folders.length
+			? folders.length + (folders.length === 1 ? ' folder in “' : ' folders in “') + nameFromPath(moveState.pickerPath.split('/').filter(Boolean).at(-1) || 'Drive') + '”'
+			: 'No folders inside here';
+	} catch (error) {
+		moveStatus.textContent = error.message;
+	}
+}
+
+moveForm.addEventListener('submit', async event => {
+	event.preventDefault();
+	if (!moveState) return;
+	const folderName = cleanNameInput(moveInput.value);
+	if (!folderName) {
+		moveStatus.textContent = 'Use a name without “/” or control characters.';
+		return;
+	}
+	moveForm.querySelector('.move-create-btn').disabled = true;
+	try {
+		await apiJson(root + moveState.pickerPath.slice(1) + '?manage=mkdir', { name: folderName });
+		moveInput.value = '';
+		loadStorage(true);
+		await loadMovePicker();
+		showToast('Folder “' + folderName + '” created.');
+	} catch (error) {
+		if (!error.signin) moveStatus.textContent = error.message;
+	} finally {
+		moveForm.querySelector('.move-create-btn').disabled = false;
+	}
+});
+
+moveHere.addEventListener('click', async () => {
+	if (!moveState || moveState.busy) return;
+	moveState.busy = true;
+	moveHere.disabled = true;
+	moveStatus.textContent = 'Moving…';
+	try {
+		const merged = await runBatched(moveState.folderUrl, 'move', moveState.items.map(item => item.id), moveState.pickerPath);
+		moveDialog.close();
+		if (merged.changed) {
+			refreshListing();
+			loadStorage(true);
+		}
+		reportResults('moved', merged);
+	} catch (error) {
+		if (!error.signin) moveStatus.textContent = error.message;
+		if (moveState) moveState.busy = false;
+	} finally {
+		moveHere.disabled = false;
+	}
+});
+
+/* --------------------------------------------------------------- row menu --- */
+
+function openRowMenu(anchor, file, entry) {
+	const capabilities = file.capabilities || {};
+	const items = [];
+	if (selectable) {
+		items.push({
+			icon: 'check',
+			label: selected.has(file.id) ? 'Deselect' : 'Select',
+			onPick: () => setSelected(entry, !selected.has(file.id))
+		});
+	}
+	items.push(
+		{
+			icon: 'edit',
+			label: 'Rename',
+			disabled: capabilities.canRename === false,
+			reason: 'Google Drive does not allow renaming this item.',
+			onPick: () => prepareRowAction(file, folderUrl => openRename(file, folderUrl))
+		},
+		{
+			icon: 'move',
+			label: 'Move to…',
+			disabled: capabilities.canMoveItemWithinDrive === false,
+			reason: 'Google Drive does not allow moving this item.',
+			onPick: () => prepareRowAction(file, folderUrl => openMove([file], folderUrl))
+		},
+		{ sep: true },
+		{
+			icon: 'trash',
+			label: 'Delete',
+			danger: true,
+			disabled: capabilities.canTrash === false && capabilities.canDelete !== true,
+			reason: 'Google Drive does not allow deleting this item.',
+			onPick: () => prepareRowAction(file, folderUrl => openDelete([file], folderUrl))
+		}
+	);
+	showMenu(anchor, items);
+}
+
+/* --------------------------------------------------------- selection bar --- */
+
+selectionBar.querySelector('.selection-rename').addEventListener('click', () => {
+	const items = [...selected.values()];
+	if (items.length === 1) openRename(items[0], path);
+});
+selectionBar.querySelector('.selection-move').addEventListener('click', () => {
+	const items = [...selected.values()];
+	if (items.length) openMove(items, path);
+});
+selectionBar.querySelector('.selection-delete').addEventListener('click', () => {
+	const items = [...selected.values()];
+	if (items.length) openDelete(items, path);
+});
+selectionBar.querySelector('.selection-clear').addEventListener('click', clearSelection);
+
+/* --------------------------------------------------------------- storage --- */
+
+const storageSection = document.querySelector('.storage');
+const storagePercent = document.querySelector('.storage-percent');
+const storageFill = document.querySelector('.storage .bar-fill');
+const storageFigures = document.querySelector('.storage-figures');
+const storageNote = document.querySelector('.storage-note');
+const storageRefresh = document.querySelector('.storage-refresh');
+let storageBusy = false;
+
+function renderStorage(data) {
+	const percent = data.total != null && data.used != null && data.total > 0
+		? Math.min(100, data.used / data.total * 100)
+		: null;
+	storagePercent.textContent = percent == null ? '—' : Math.round(percent) + '%';
+	storageSection.classList.toggle('is-full', percent != null && percent >= 90);
+	storageFill.style.width = (percent ?? 0) + '%';
+	const rows = [
+		['Used', data.used],
+		['Available', data.available],
+		['Total', data.total],
+		['In Drive', data.usedInDrive],
+		['In trash', data.usedInTrash]
+	].filter(([, value]) => value != null);
+	storageFigures.replaceChildren(...rows.map(([label, value]) => {
+		const wrap = create('div');
+		wrap.append(create('dt', '', label), create('dd', '', formatSize(value)));
+		return wrap;
+	}));
+	const at = data.fetchedAt ? dates.format(new Date(data.fetchedAt)) : '';
+	storageNote.textContent = percent == null
+		? 'Google Drive reported no storage limit for this account.'
+		: (data.cached ? 'Cached' : 'Reported') + ' by Google Drive' + (at ? ' · ' + at : '');
+}
+
+async function loadStorage(refresh) {
+	if (!isAdmin || !isFolder || isSearch || storageBusy) return;
+	storageBusy = true;
+	storageSection.hidden = false;
+	storageRefresh.disabled = true;
+	storageRefresh.replaceChildren(icon('refresh', refresh ? 'is-spinning' : ''));
+	try {
+		renderStorage(await apiJson(root + '?manage=storage' + (refresh ? '&refresh=1' : ''), undefined, 'GET'));
+	} catch (error) {
+		if (error.signin) storageSection.hidden = true;
+		else {
+			storagePercent.textContent = '—';
+			storageFigures.replaceChildren();
+			storageNote.textContent = error.message;
+		}
+	} finally {
+		storageBusy = false;
+		storageRefresh.disabled = false;
+		storageRefresh.replaceChildren(icon('refresh'));
+	}
+}
+
+storageRefresh.addEventListener('click', () => loadStorage(true));
 
 /* --------------------------------------------------------------- preview --- */
 
@@ -598,6 +1390,7 @@ previewBackdrop.addEventListener('click', event => {
 
 async function previewFile() {
 	previewBackdrop.hidden = false;
+	pushLayer(leavePreview);
 	try {
 		const response = await post(path);
 		const file = await response.json();
@@ -641,17 +1434,17 @@ async function previewFile() {
 	}
 }
 
-/* ------------------------------------------------------------ admin sign-in --- */
+/* ---------------------------------------------------------- admin session --- */
 
-const adminButton = document.querySelector('.admin-signin');
-const signinBackdrop = document.querySelector('.signin-backdrop');
+const adminLock = document.querySelector('.admin-lock');
+const signinDialog = bindDialog(document.querySelector('.signin-backdrop'), {});
 const signinForm = document.querySelector('.signin-form');
 const signinError = document.querySelector('.signin-error');
-let adminHeader = null;
-
-function authHeaders() {
-	return adminHeader ? { 'Authorization': adminHeader } : {};
-}
+const signinNote = document.querySelector('.signin-note');
+const signinBusy = document.querySelector('.signin-busy');
+// Sign-in and sign-out always go to the index root: any index path answers
+// them, and the root one works from a search or preview page too.
+const sessionUrl = root + '?manage=';
 
 function basicAuthValue(username, password) {
 	const bytes = new TextEncoder().encode(username + ':' + password);
@@ -660,80 +1453,101 @@ function basicAuthValue(username, password) {
 	return 'Basic ' + btoa(binary);
 }
 
-function closeSignin() {
-	signinBackdrop.hidden = true;
+function promptSignin(message) {
+	if (!canAdmin) return;
+	signinNote.textContent = message || 'The administrator pair from this index\u2019s settings unlocks uploads and file management.';
 	signinError.hidden = true;
-}
-
-adminButton.addEventListener('click', () => {
-	signinBackdrop.hidden = false;
+	signinDialog.open();
 	signinForm.elements.user.focus();
-});
-document.querySelector('.signin-close').addEventListener('click', closeSignin);
-signinBackdrop.addEventListener('click', event => {
-	if (event.target === signinBackdrop) closeSignin();
-});
+}
 
 signinForm.addEventListener('submit', async event => {
 	event.preventDefault();
 	signinError.hidden = true;
-	const header = basicAuthValue(signinForm.elements.user.value, signinForm.elements.pass.value);
+	const submit = signinForm.querySelector('[type="submit"]');
+	submit.disabled = true;
+	signinBusy.hidden = false;
 	try {
-		const response = await fetch(path + '?upload=whoami', { headers: { 'Authorization': header } });
-		if (!response.ok) throw new Error();
-		adminHeader = header;
-		closeSignin();
+		const response = await fetch(sessionUrl + 'login', {
+			method: 'POST',
+			headers: {
+				'Authorization': basicAuthValue(signinForm.elements.user.value, signinForm.elements.pass.value),
+				'X-Requested-With': CLIENT_MARKER
+			}
+		});
+		if (response.status === 401) throw new Error('That admin sign-in did not work. Check the username and password.');
+		if (!response.ok) {
+			let data = null;
+			try { data = await response.json(); } catch {}
+			throw new Error(data?.error || 'The sign-in did not go through. Try again.');
+		}
 		signinForm.reset();
-		adminButton.hidden = true;
-		uploadButton.hidden = false;
-	} catch {
-		signinError.textContent = 'That admin sign-in did not work. Check the username and password.';
-		signinError.hidden = false;
+		signinDialog.close();
+		// The page model itself changes with the session, so reload.
+		location.reload();
+	} catch (error) {
+		showFormError(signinError, error.message);
+	} finally {
+		submit.disabled = false;
+		signinBusy.hidden = true;
 	}
 });
+
+async function signOut() {
+	try {
+		await fetch(sessionUrl + 'logout', { method: 'POST', headers: { 'X-Requested-With': CLIENT_MARKER } });
+	} catch {}
+	location.reload();
+}
+
+if (canAdmin) {
+	adminLock.hidden = false;
+	adminLock.replaceChildren(icon('lock'));
+	adminLock.classList.toggle('is-active', isAdmin);
+	const lockLabel = isAdmin ? 'Admin session' : 'Admin sign-in';
+	adminLock.title = lockLabel;
+	adminLock.setAttribute('aria-label', lockLabel);
+	adminLock.addEventListener('click', () => {
+		if (isAdmin) {
+			showMenu(adminLock, [
+				{ heading: 'Signed in as admin' },
+				{ sep: true },
+				{ icon: 'signout', label: 'Sign out', danger: true, onPick: signOut }
+			]);
+		} else {
+			promptSignin();
+		}
+	});
+}
 
 /* ---------------------------------------------------------------- uploads --- */
 
 // Admin uploads: the Worker seals the Drive session behind an opaque token,
 // so credentials, tokens, and session URLs never appear in page responses.
 // The engine (upload-engine.js) drives resumable chunks with live speed and
-// ETA and exposes pause / resume / cancel; this layer renders the centered
-// progress popup and refreshes the listing when the batch finishes.
-const uploadButton = document.querySelector('.upload-files');
-const uploadInput = document.querySelector('.upload-input');
-const uploadBackdrop = document.querySelector('.upload-backdrop');
-const uploadTitle = document.querySelector('#upload-title');
-const uploadPercent = document.querySelector('.upload-percent');
-const uploadFigures = document.querySelector('.upload-figures');
-const uploadSub = document.querySelector('.upload-sub');
-const uploadFill = document.querySelector('.upload-overview .bar-fill');
-const uploadList = document.querySelector('.upload-list');
+// ETA and exposes pause / resume / cancel; this layer keeps any number of
+// batches in one floating panel and refreshes the listing when they finish.
+const uploadPanel = document.querySelector('.upload-panel');
+const uploadBody = document.querySelector('.upload-body');
 const uploadDock = document.querySelector('.upload-dock');
-const pauseAllButton = document.querySelector('.upload-pause-all');
-const resumeAllButton = document.querySelector('.upload-resume-all');
-const cancelRestButton = document.querySelector('.upload-cancel-rest');
-const retryFailedButton = document.querySelector('.upload-retry-failed');
-const copyReportButton = document.querySelector('.upload-copy-report');
+const newButton = document.querySelector('.new-button');
+const uploadInput = document.querySelector('.upload-input');
+const folderInput = document.querySelector('.folder-input');
+let folderInputSupported = false;
+if ('webkitdirectory' in folderInput) {
+	folderInput.webkitdirectory = true;
+	folderInputSupported = true;
+}
 
 const MAX_ATTEMPTS = window.RinUploadEngine.MAX_ATTEMPTS;
 const PAUSABLE = { pending: true, queued: true, starting: true, uploading: true, retrying: true, resuming: true };
 const FINAL_STATES = { done: true, cancelled: true, error: true };
 
-const upload = {
-	handle: null,
-	files: [],
-	states: [],
-	rows: [],
-	batch: null,
-	done: false,
-	renderQueued: false
-};
-
-let uploadEngine = null;
-function getUploadEngine() {
-	if (!uploadEngine) uploadEngine = new window.RinUploadEngine.Engine({ transport: xhrTransport });
-	return uploadEngine;
-}
+const batches = [];
+let batchCounter = 0;
+let uploadRenderQueued = false;
+let uploadsDismissed = false;
+let uploadPanelCloser = null;
 
 // XHR transport gives byte-granular progress events while a chunk streams,
 // keeping the progress bar, speed, and ETA current without polling. The
@@ -872,9 +1686,9 @@ function fileNote(record) {
 	return '';
 }
 
-function modalRow(index) {
-	if (upload.rows[index]) return upload.rows[index];
-	const record = upload.states[index];
+function batchRow(batch, index) {
+	if (batch.rows[index]) return batch.rows[index];
+	const record = batch.states[index];
 	const item = create('li', 'upload-row');
 	const line = create('div', 'line');
 	const nameEl = create('span', 'upload-name', record ? record.name : '');
@@ -886,15 +1700,15 @@ function modalRow(index) {
 	pauseBtn.title = 'Pause';
 	pauseBtn.setAttribute('aria-label', 'Pause ' + (record ? record.name : 'file'));
 	pauseBtn.addEventListener('click', () => {
-		if (!upload.handle) return;
-		const current = upload.states[index];
+		if (!batch.handle) return;
+		const current = batch.states[index];
 		if (!current) return;
 		if (current.state === 'paused') {
-			if (upload.handle.resume(index)) {
+			if (batch.handle.resume(index)) {
 				current.state = 'resuming';
 				scheduleUploadRender();
 			}
-		} else if (upload.handle.pause(index)) {
+		} else if (batch.handle.pause(index)) {
 			current.state = 'pausing';
 			scheduleUploadRender();
 		}
@@ -904,9 +1718,9 @@ function modalRow(index) {
 	cancelBtn.title = 'Cancel';
 	cancelBtn.setAttribute('aria-label', 'Cancel ' + (record ? record.name : 'file'));
 	cancelBtn.addEventListener('click', () => {
-		if (!upload.handle) return;
-		if (upload.handle.cancel(index)) {
-			upload.states[index].state = 'cancelling';
+		if (!batch.handle) return;
+		if (batch.handle.cancel(index)) {
+			batch.states[index].state = 'cancelling';
 			scheduleUploadRender();
 		}
 	});
@@ -918,14 +1732,80 @@ function modalRow(index) {
 	const noteEl = create('p', 'note', '');
 	noteEl.hidden = true;
 	item.append(line, bar, noteEl);
-	uploadList.append(item);
-	upload.rows[index] = { item, nameEl, stateEl, noteEl, fill, pauseBtn, cancelBtn };
-	return upload.rows[index];
+	batch.listEl.append(item);
+	batch.rows[index] = { item, nameEl, stateEl, noteEl, fill, pauseBtn, cancelBtn };
+	return batch.rows[index];
 }
 
-function handleUploadEvent(event) {
-	if (event.index !== undefined && upload.states[event.index]) {
-		const record = upload.states[event.index];
+function buildBatchDom(batch) {
+	const section = create('section', 'upload-batch');
+	const overview = create('div', 'upload-overview');
+	const topline = create('div', 'topline');
+	const percentEl = create('span', 'upload-percent', '0%');
+	const figuresEl = create('span', 'upload-figures', '');
+	topline.append(percentEl, figuresEl);
+	const bar = create('div', 'bar');
+	const fill = create('div', 'bar-fill');
+	bar.append(fill);
+	const subEl = create('p', 'upload-sub', '');
+	overview.append(topline, bar, subEl);
+
+	const listEl = create('ul', 'upload-list');
+	const foot = create('div', 'upload-foot');
+	const pauseAllBtn = create('button', 'button button-ghost', 'Pause all');
+	pauseAllBtn.type = 'button';
+	const resumeAllBtn = create('button', 'button button-ghost', 'Resume all');
+	resumeAllBtn.type = 'button';
+	const cancelRestBtn = create('button', 'button button-danger', 'Cancel remaining');
+	cancelRestBtn.type = 'button';
+	const retryFailedBtn = create('button', 'button button-secondary', 'Retry failed');
+	retryFailedBtn.type = 'button';
+	retryFailedBtn.hidden = true;
+	const copyReportBtn = create('button', 'button button-secondary', 'Copy report');
+	copyReportBtn.type = 'button';
+	copyReportBtn.hidden = true;
+	foot.append(pauseAllBtn, resumeAllBtn, cancelRestBtn, retryFailedBtn, copyReportBtn);
+
+	pauseAllBtn.addEventListener('click', () => {
+		if (!batch.handle) return;
+		if (batch.handle.pause()) {
+			for (const record of batch.states) if (record && PAUSABLE[record.state]) record.state = 'pausing';
+			scheduleUploadRender();
+		}
+	});
+	resumeAllBtn.addEventListener('click', () => {
+		if (!batch.handle) return;
+		if (batch.handle.resume()) {
+			for (const record of batch.states) if (record && record.state === 'paused') record.state = 'resuming';
+			scheduleUploadRender();
+		}
+	});
+	cancelRestBtn.addEventListener('click', () => {
+		if (!batch.handle) return;
+		if (batch.handle.cancel()) {
+			for (const record of batch.states) {
+				if (record && !FINAL_STATES[record.state] && record.state !== 'cancelling') record.state = 'cancelling';
+			}
+			scheduleUploadRender();
+		}
+	});
+	retryFailedBtn.addEventListener('click', () => {
+		const failedFiles = batch.states.filter(record => record && record.state === 'error').map(record => record.file);
+		if (failedFiles.length) startUpload(failedFiles, 'Retry');
+	});
+	copyReportBtn.addEventListener('click', async () => {
+		const text = buildBatchReport(batch);
+		showToast(await writeClipboard(text) ? 'Report copied to the clipboard' : 'Copy blocked');
+	});
+
+	section.append(overview, listEl, foot);
+	uploadBody.append(section);
+	Object.assign(batch, { section, percentEl, figuresEl, fill, subEl, listEl, pauseAllBtn, resumeAllBtn, cancelRestBtn, retryFailedBtn, copyReportBtn });
+}
+
+function onBatchEvent(batch, event) {
+	if (event.index !== undefined && batch.states[event.index]) {
+		const record = batch.states[event.index];
 		Object.assign(record, event);
 		if (event.type === 'file-start') record.state = 'starting';
 		if (event.type === 'file-progress') record.state = 'uploading';
@@ -937,42 +1817,48 @@ function handleUploadEvent(event) {
 		if (event.type === 'file-resumed') record.state = 'resuming';
 	}
 	if (event.type === 'batch-start') {
-		upload.batch = event;
-		upload.done = false;
+		batch.batch = event;
+		batch.done = false;
 	} else if (event.type === 'batch-progress') {
-		upload.batch = event;
+		batch.batch = event;
 	} else if (event.type === 'batch-done') {
-		upload.done = true;
-		upload.batch = Object.assign({}, upload.batch, event);
+		batch.done = true;
+		batch.batch = Object.assign({}, batch.batch, event);
 	}
 	scheduleUploadRender();
 }
 
 function scheduleUploadRender() {
-	if (upload.renderQueued) return;
-	upload.renderQueued = true;
+	if (uploadRenderQueued) return;
+	uploadRenderQueued = true;
 	requestAnimationFrame(() => {
-		upload.renderQueued = false;
-		renderUpload();
+		uploadRenderQueued = false;
+		renderUploads();
 	});
 }
 
-function renderUpload() {
+function renderUploads() {
+	for (const batch of batches) renderBatch(batch);
+	renderDock();
+	renderPanelButtons();
+}
+
+function renderBatch(batch) {
 	let unfinished = 0;
 	let paused = 0;
 	let pausable = 0;
 	let failed = 0;
-	for (let index = 0; index < upload.states.length; index++) {
-		const record = upload.states[index];
+	for (let index = 0; index < batch.states.length; index++) {
+		const record = batch.states[index];
 		if (!record) continue;
-		const row = modalRow(index);
+		const row = batchRow(batch, index);
 		row.item.className = 'upload-row'
 			+ (record.state === 'done' ? ' is-done' : '')
 			+ (record.state === 'paused' ? ' is-paused' : '')
 			+ (record.state === 'error' ? ' is-error' : '');
 		row.fill.className = 'bar-fill'
-			+ (record.state === 'paused' ? ' paused' : '')
-			+ (record.state === 'cancelled' ? ' cancelled' : '');
+			+ (record.state === 'paused' ? ' is-paused' : '')
+			+ (record.state === 'cancelled' ? ' is-cancelled' : '');
 		const percent = Math.max(0, Math.min(100, record.percent || 0));
 		row.fill.style.width = (record.state === 'done' ? 100 : percent).toFixed(1) + '%';
 		row.stateEl.textContent = fileStateText(record);
@@ -995,116 +1881,110 @@ function renderUpload() {
 		if (record.state === 'error') failed++;
 	}
 
-	const batch = upload.batch;
-	if (batch) {
-		const percent = Math.max(0, Math.min(100, batch.percent || 0));
-		uploadFill.style.width = percent.toFixed(1) + '%';
-		uploadPercent.textContent = percent.toFixed(0) + '%';
+	const summary = batch.batch;
+	if (summary) {
+		const percent = Math.max(0, Math.min(100, summary.percent || 0));
+		batch.fill.style.width = percent.toFixed(1) + '%';
+		batch.percentEl.textContent = percent.toFixed(0) + '%';
 		const figures = [];
-		if (batch.filesTotal > 1) figures.push((batch.filesDone || 0) + ' of ' + batch.filesTotal + ' files');
-		figures.push(formatSize(batch.uploaded) + ' of ' + formatSize(batch.total));
-		const speed = formatSpeed(batch.speed);
+		if (summary.filesTotal > 1) figures.push((summary.filesDone || 0) + ' of ' + summary.filesTotal + ' files');
+		figures.push(formatSize(summary.uploaded) + ' of ' + formatSize(summary.total));
+		const speed = formatSpeed(summary.speed);
 		if (speed) figures.push(speed);
-		const eta = formatEta(batch.eta);
+		const eta = formatEta(summary.eta);
 		if (eta) figures.push(eta);
-		uploadFigures.textContent = figures.join(' · ');
+		batch.figuresEl.textContent = figures.join(' · ');
 
 		const sub = [];
-		const split = formatSplit(batch.sendMs, batch.waitMs);
-		if (split && !upload.done) sub.push(split);
-		if (batch.paused) sub.push(batch.paused + (batch.paused === 1 ? ' file paused' : ' files paused'));
-		if (batch.retries) sub.push(batch.retries + (batch.retries === 1 ? ' retry' : ' retries'));
-		uploadSub.textContent = sub.join(' · ');
-
-		uploadTitle.textContent = upload.done
-			? (batch.failed ? 'Uploads finished (' + batch.succeeded + ' of ' + batch.filesTotal + ')' : 'Uploads finished')
-			: (batch.filesTotal > 1 ? 'Uploading ' + batch.filesTotal + ' files' : 'Uploading ' + (upload.states[0] ? upload.states[0].name : 'files'));
+		const split = formatSplit(summary.sendMs, summary.waitMs);
+		if (split && !batch.done) sub.push(split);
+		if (summary.paused) sub.push(summary.paused + (summary.paused === 1 ? ' file paused' : ' files paused'));
+		if (summary.retries) sub.push(summary.retries + (summary.retries === 1 ? ' retry' : ' retries'));
+		batch.subEl.textContent = sub.join(' · ');
 	}
 
-	pauseAllButton.disabled = !pausable;
-	pauseAllButton.hidden = upload.done && !pausable;
-	resumeAllButton.disabled = !paused;
-	resumeAllButton.hidden = upload.done && !paused;
-	cancelRestButton.disabled = !unfinished;
-	cancelRestButton.hidden = upload.done && !unfinished;
-	retryFailedButton.hidden = !(upload.done && failed);
-	copyReportButton.hidden = !upload.done || !upload.batch;
+	batch.pauseAllBtn.disabled = !pausable;
+	batch.pauseAllBtn.hidden = batch.done && !pausable;
+	batch.resumeAllBtn.disabled = !paused;
+	batch.resumeAllBtn.hidden = batch.done && !paused;
+	batch.cancelRestBtn.disabled = !unfinished;
+	batch.cancelRestBtn.hidden = batch.done && !unfinished;
+	batch.retryFailedBtn.hidden = !(batch.done && failed);
+	batch.copyReportBtn.hidden = !batch.done || !batch.batch;
+}
 
-	if (!uploadBackdrop.hidden) {
-		uploadDock.hidden = true;
-	} else if (!upload.done && batch) {
-		uploadDock.hidden = false;
-		const dockBar = create('div', 'bar');
-		const dockFill = create('div', 'bar-fill');
-		dockFill.style.width = percent0(batch);
-		dockBar.append(dockFill);
-		uploadDock.replaceChildren(
-			icon('upload'),
-			create('span', '', percent0(batch) + ' · ' + (formatSpeed(batch.speed) || 'paused')),
-			dockBar
-		);
-	} else {
-		uploadDock.hidden = true;
+function renderPanelButtons() {
+	const active = batches.some(batch => !batch.done);
+	const closeBtn = document.querySelector('.upload-close');
+	closeBtn.disabled = active;
+	closeBtn.title = active ? 'Uploads are still running' : 'Clear finished uploads';
+}
+
+function renderDock() {
+	const show = uploadPanel.hidden && !uploadsDismissed && batches.length > 0;
+	uploadDock.hidden = !show;
+	if (!show) return;
+	let total = 0;
+	let uploaded = 0;
+	let speed = 0;
+	let running = false;
+	for (const batch of batches) {
+		const summary = batch.batch;
+		if (!summary) continue;
+		total += summary.total || 0;
+		uploaded += summary.uploaded || 0;
+		speed += summary.speed || 0;
+		if (!batch.done) running = true;
 	}
+	const percent = total ? Math.min(100, uploaded / total * 100) : 0;
+	const bar = create('div', 'bar');
+	const fill = create('div', 'bar-fill');
+	fill.style.width = percent.toFixed(1) + '%';
+	bar.append(fill);
+	uploadDock.replaceChildren(
+		icon('upload'),
+		create('span', '', (running ? Math.round(percent) + '%' : 'Done') + ' · ' + (running ? (formatSpeed(speed) || 'starting') : 'uploads')),
+		bar
+	);
 }
 
-function percent0(batch) {
-	if (!batch) return 0;
-	return Math.max(0, Math.min(100, batch.percent || 0)).toFixed(0) + '%';
-}
-
-function openUploadModal() {
-	uploadBackdrop.hidden = false;
+function openUploadPanel() {
+	uploadsDismissed = false;
+	uploadPanel.hidden = false;
 	uploadDock.hidden = true;
+	if (!uploadPanelCloser) {
+		uploadPanelCloser = minimizeUploads;
+		pushLayer(uploadPanelCloser);
+	}
 	scheduleUploadRender();
 }
 
-function closeUploadModal() {
-	uploadBackdrop.hidden = true;
-	renderUpload();
+function minimizeUploads() {
+	uploadPanel.hidden = true;
+	if (uploadPanelCloser) {
+		removeLayer(uploadPanelCloser);
+		uploadPanelCloser = null;
+	}
+	renderDock();
 }
 
-document.querySelector('.upload-close').addEventListener('click', closeUploadModal);
-document.querySelector('.upload-minimize').addEventListener('click', closeUploadModal);
-uploadDock.addEventListener('click', openUploadModal);
-uploadBackdrop.addEventListener('click', event => {
-	if (event.target === uploadBackdrop) closeUploadModal();
+document.querySelector('.upload-minimize').addEventListener('click', minimizeUploads);
+document.querySelector('.upload-close').addEventListener('click', () => {
+	if (batches.some(batch => !batch.done)) return;
+	for (const batch of batches) batch.section.remove();
+	batches.length = 0;
+	uploadsDismissed = true;
+	uploadPanel.hidden = true;
+	if (uploadPanelCloser) {
+		removeLayer(uploadPanelCloser);
+		uploadPanelCloser = null;
+	}
+	renderDock();
 });
+uploadDock.addEventListener('click', openUploadPanel);
 
-pauseAllButton.addEventListener('click', () => {
-	if (!upload.handle) return;
-	if (upload.handle.pause()) {
-		for (const record of upload.states) if (record && PAUSABLE[record.state]) record.state = 'pausing';
-		scheduleUploadRender();
-	}
-});
-resumeAllButton.addEventListener('click', () => {
-	if (!upload.handle) return;
-	if (upload.handle.resume()) {
-		for (const record of upload.states) if (record && record.state === 'paused') record.state = 'resuming';
-		scheduleUploadRender();
-	}
-});
-cancelRestButton.addEventListener('click', () => {
-	if (!upload.handle) return;
-	if (upload.handle.cancel()) {
-		for (const record of upload.states) {
-			if (record && !FINAL_STATES[record.state] && record.state !== 'cancelling') record.state = 'cancelling';
-		}
-		scheduleUploadRender();
-	}
-});
-retryFailedButton.addEventListener('click', () => {
-	const failedFiles = upload.states.filter(record => record && record.state === 'error').map(record => record.file);
-	if (failedFiles.length) startUpload(failedFiles);
-});
-copyReportButton.addEventListener('click', async () => {
-	const text = buildReport();
-	showToast(await writeClipboard(text) ? 'Report copied to the clipboard' : 'Copy blocked');
-});
-
-function buildReport() {
-	const report = upload.handle ? upload.handle.report() : null;
+function buildBatchReport(batch) {
+	const report = batch.handle ? batch.handle.report() : null;
 	if (!report) return 'No upload report available.';
 	const lines = ['Rin Index upload report'];
 	const finished = report.succeeded + report.cancelled + report.failed;
@@ -1137,7 +2017,7 @@ function buildReport() {
 // Leaving the page mid-upload would drop every in-flight chunk, so warn
 // while anything is unfinished (paused files included).
 window.addEventListener('beforeunload', event => {
-	if (upload.handle && upload.handle.summary().unfinished > 0) {
+	if (batches.some(batch => batch.handle && batch.handle.summary().unfinished > 0)) {
 		event.preventDefault();
 		event.returnValue = '';
 	}
@@ -1146,66 +2026,198 @@ window.addEventListener('beforeunload', event => {
 // Files parked by a connection drop resume by themselves once the browser
 // is back online; user-paused files stay paused until Resume is pressed.
 window.addEventListener('online', () => {
-	if (!upload.handle) return;
-	for (let index = 0; index < upload.states.length; index++) {
-		const record = upload.states[index];
-		if (record && record.state === 'paused' && record.reason === 'stalled') {
-			if (upload.handle.resume(index)) record.state = 'resuming';
+	for (const batch of batches) {
+		if (!batch.handle) continue;
+		for (let index = 0; index < batch.states.length; index++) {
+			const record = batch.states[index];
+			if (record && record.state === 'paused' && record.reason === 'stalled') {
+				if (batch.handle.resume(index)) record.state = 'resuming';
+			}
 		}
 	}
 	scheduleUploadRender();
 });
 
-function startUpload(files) {
+function startUpload(files, title) {
 	if (!files.length) return;
-	openUploadModal();
-	uploadButton.disabled = true;
-	upload.files = files;
-	upload.rows = [];
-	uploadList.replaceChildren();
-	upload.states = files.map(file => ({
-		file, name: file.name, total: file.size, state: 'pending',
-		uploaded: 0, committed: 0, percent: 0, speed: null, eta: null,
-		reason: '', message: '', attempt: 0, closed: null
-	}));
-	upload.batch = null;
-	upload.done = false;
-	upload.handle = getUploadEngine().start(files, {
+	const batch = {
+		id: ++batchCounter,
+		title: title || (files.length === 1 ? files[0].name : files.length + ' files'),
+		files,
+		states: files.map(file => ({
+			file, name: file.name, total: file.size, state: 'pending',
+			uploaded: 0, committed: 0, percent: 0, speed: null, eta: null,
+			reason: '', message: '', attempt: 0, closed: null
+		})),
+		rows: [],
+		batch: null,
+		done: false,
+		handle: null
+	};
+	buildBatchDom(batch);
+	batches.push(batch);
+	openUploadPanel();
+	const engine = new window.RinUploadEngine.Engine({ transport: xhrTransport });
+	batch.handle = engine.start(files, {
 		path,
-		getHeaders: authHeaders,
+		getHeaders: () => ({ 'X-Requested-With': CLIENT_MARKER }),
 		concurrency: 2,
-		onEvent: handleUploadEvent
+		onEvent: event => onBatchEvent(batch, event)
 	});
-	upload.handle.done.then(state => {
-		uploadButton.disabled = false;
+	batch.handle.done.then(state => {
+		batch.done = true;
 		if (state.succeeded) refreshListing();
+		loadStorage(true);
+		scheduleUploadRender();
 	}).catch(() => {
-		uploadButton.disabled = false;
+		batch.done = true;
+		scheduleUploadRender();
 	});
 	scheduleUploadRender();
 }
 
-function setupAdminUploads() {
-	if (model.is_admin) {
-		uploadButton.hidden = false;
-	} else {
-		adminButton.hidden = false;
+/* --------------------------------------------------------- folder uploads --- */
+
+// Creates the folders a batch needs, level by level, then starts the engine
+// with every file pointing at the folder it belongs to. `entries` hold a
+// File plus the folder chain (relative to the current folder) it goes in.
+async function uploadWithFolders(entries, title) {
+	if (!entries.length) return;
+	const dirs = new Set();
+	for (const { segs } of entries) {
+		for (let depth = 1; depth <= segs.length; depth++) dirs.add(segs.slice(0, depth).join('/'));
 	}
-	uploadButton.addEventListener('click', () => uploadInput.click());
-	uploadInput.addEventListener('change', () => {
-		const files = [...uploadInput.files];
-		uploadInput.value = '';
-		if (files.length) startUpload(files);
+	const failed = new Set();
+	const problems = [];
+	const ordered = [...dirs].sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1));
+	for (const dir of ordered) {
+		if ([...failed].some(prefix => dir.startsWith(prefix + '/'))) {
+			failed.add(dir);
+			continue;
+		}
+		const segs = dir.split('/');
+		const parent = segs.length === 1 ? path : path + segs.slice(0, -1).map(encodeURIComponent).join('/') + '/';
+		try {
+			await apiJson(parent + '?manage=mkdir', { name: segs.at(-1), reuse: true });
+		} catch (error) {
+			if (error.signin) return;
+			failed.add(dir);
+			problems.push(dir + ' — ' + error.message);
+		}
+	}
+	const okFiles = [];
+	const dropped = [];
+	for (const entry of entries) {
+		const dir = entry.segs.join('/');
+		if ([...failed].some(prefix => dir === prefix || dir.startsWith(prefix + '/'))) dropped.push(entry.file.name);
+		else {
+			if (entry.segs.length) entry.file.targetPath = path + entry.segs.map(encodeURIComponent).join('/') + '/';
+			okFiles.push(entry.file);
+		}
+	}
+	if (problems.length) showToast('Some folders could not be created: ' + problems.slice(0, 2).join('; ') + (problems.length > 2 ? '; …' : ''));
+	if (dropped.length) showToast(dropped.length + ' file(s) skipped because their folders could not be created.');
+	if (!okFiles.length) return;
+	startUpload(okFiles, title || (okFiles.length === 1 ? okFiles[0].name : okFiles.length + ' files'));
+}
+
+async function walkEntries(entries, segs, out) {
+	for (const entry of entries) {
+		if (entry.isFile) {
+			const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+			out.push({ file, segs });
+		} else if (entry.isDirectory) {
+			const reader = entry.createReader();
+			let group;
+			do {
+				group = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+				await walkEntries(group, segs.concat(entry.name), out);
+			} while (group.length);
+		}
+	}
+}
+
+/* ---------------------------------------------------------- drag & drop --- */
+
+function isFileDrag(event) {
+	return [...(event.dataTransfer?.types || [])].includes('Files');
+}
+
+function setupDropZone() {
+	const dropZone = document.querySelector('.drop-zone');
+	let depth = 0;
+	panel.addEventListener('dragenter', event => {
+		if (!isFileDrag(event)) return;
+		event.preventDefault();
+		depth++;
+		dropZone.hidden = false;
 	});
-	document.addEventListener('keydown', event => {
-		if (event.key !== 'Escape') return;
-		if (!uploadBackdrop.hidden) closeUploadModal();
-		else if (!signinBackdrop.hidden) closeSignin();
-		else if (!previewBackdrop.hidden) leavePreview();
+	panel.addEventListener('dragover', event => {
+		if (!isFileDrag(event)) return;
+		event.preventDefault();
+	});
+	panel.addEventListener('dragleave', () => {
+		depth = Math.max(0, depth - 1);
+		if (!depth) dropZone.hidden = true;
+	});
+	panel.addEventListener('drop', async event => {
+		if (!isFileDrag(event)) return;
+		event.preventDefault();
+		depth = 0;
+		dropZone.hidden = true;
+		const transfer = event.dataTransfer;
+		// Entry objects must be collected before anything is awaited.
+		const roots = transfer.items
+			? [...transfer.items].map(item => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null)).filter(Boolean)
+			: [];
+		if (roots.length) {
+			const collected = [];
+			try {
+				await walkEntries(roots, [], collected);
+			} catch {
+				showToast('Some of what was dropped could not be read.');
+				return;
+			}
+			const topName = roots.length === 1 && roots[0].isDirectory ? roots[0].name : '';
+			uploadWithFolders(collected, topName);
+		} else {
+			const files = [...transfer.files].map(file => ({ file, segs: [] }));
+			uploadWithFolders(files, '');
+		}
 	});
 }
 
 /* -------------------------------------------------------------- start up --- */
+
+newButton.addEventListener('click', () => {
+	const items = [
+		{ icon: 'new-folder', label: 'New folder', onPick: openMkdir },
+		{ icon: 'upload', label: 'Upload files', onPick: () => uploadInput.click() }
+	];
+	if (folderInputSupported) {
+		items.splice(1, 0, { icon: 'folder', label: 'Upload folder', onPick: () => folderInput.click() });
+	}
+	showMenu(newButton, items);
+});
+
+uploadInput.addEventListener('change', () => {
+	const files = [...uploadInput.files];
+	uploadInput.value = '';
+	if (files.length) startUpload(files);
+});
+
+folderInput.addEventListener('change', () => {
+	const files = [...folderInput.files];
+	folderInput.value = '';
+	if (!files.length) return;
+	// webkitRelativePath is "Top folder/sub/file.txt"; the top folder itself
+	// is uploaded into the folder being viewed.
+	const entries = files.map(file => {
+		const parts = (file.webkitRelativePath || file.name).split('/');
+		return { file, segs: parts.slice(0, -1) };
+	});
+	uploadWithFolders(entries, (files[0].webkitRelativePath || '').split('/')[0] || '');
+});
 
 if (isSearch || isFolder) {
 	panel.querySelector('.panel-title').textContent = isSearch ? 'Matching files' : 'Files and folders';
@@ -1214,7 +2226,11 @@ if (isSearch || isFolder) {
 		saveLinksButton.href = path + '?download=links';
 		saveLinksButton.hidden = false;
 		downloadFilesButton.addEventListener('click', downloadFolderFiles);
-		if (model.can_upload) setupAdminUploads();
+		newButton.hidden = !isAdmin;
+		if (isAdmin) {
+			setupDropZone();
+			loadStorage(false);
+		}
 	}
 	loadButton.addEventListener('click', loadPage);
 	folderPassword.addEventListener('submit', event => {
@@ -1226,3 +2242,5 @@ if (isSearch || isFolder) {
 } else {
 	previewFile();
 }
+
+
